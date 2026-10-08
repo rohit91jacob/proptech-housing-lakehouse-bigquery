@@ -1,0 +1,16 @@
+FILEID|STUSAB|SUMLEVEL|COMPONENT|US|REGION|DIVISION|STATE|COUNTY|COUSUB|PLACE|TRACT|BLKGRP|CONCIT|AIANHH|AIANHHFP|AIHHTLI|AITS|AITSFP|ANRC|CBSA|CSA|METDIV|MACC|MEMI|NECTA|CNECTA|NECTADIV|UA|CDCURR|SLDU|SLDL|ZCTA5|SUBMCD|SDELM|SDSEC|SDUNI|UR|PCI|PUMA5|GEO_ID|NAME|BTTR|BTBG|TL_GEO_ID
+ACSSF|US|010|00|||||||||||||||||||||||||||||||||||||0100000US|United States|||
+ACSSF|ca|040|00||||06|||||||||||||||||||||||||||||||||0400000US06|California|||
+ACSSF|tx|040|00||||48|||||||||||||||||||||||||||||||||0400000US48|Texas|||
+ACSSF|fl|040|00||||12|||||||||||||||||||||||||||||||||0400000US12|Florida|||
+ACSSF|co|040|00||||08|||||||||||||||||||||||||||||||||0400000US08|Colorado|||
+ACSSF|ca|050|00||||06|901||||||||||||||||||||||||||||||||0500000US06901|Lakeview County, California|||
+ACSSF|tx|050|00||||48|901||||||||||||||||||||||||||||||||0500000US48901|Pine County, Texas|||
+ACSSF|fl|050|00||||12|901||||||||||||||||||||||||||||||||0500000US12901|Bay County, Florida|||
+ACSSF|co|050|00||||08|903||||||||||||||||||||||||||||||||0500000US08903|Maple County, Colorado|||
+ACSSF|US|310|00|||||||||||||||||90010||||||||||||||||||||310M700US90010|Lakeview-Riverside-Brookfield, CA Metro Area|||
+ACSSF|US|310|00|||||||||||||||||90020||||||||||||||||||||310M700US90020|Pine Ridge-Cedar Park, TX Metro Area|||
+ACSSF|US|310|00|||||||||||||||||90030||||||||||||||||||||310M700US90030|Twin-Oaks-Bayside, FL Metro Area|||
+ACSSF|US|310|00|||||||||||||||||90040||||||||||||||||||||310M600US90040|Granite City, CO Micro Area|||
+ACSSF|US|310|00|||||||||||||||||90050||||||||||||||||||||310M700US90050|Maple Grove, CO Metro Area|||
+ACSSF|US|010|89|||||||||||||||||||||||||||||||||||||0100089US|United States -- Urban|||

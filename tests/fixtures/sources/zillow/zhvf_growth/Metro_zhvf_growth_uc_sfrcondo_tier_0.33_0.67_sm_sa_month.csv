@@ -1,0 +1,7 @@
+RegionID,SizeRank,RegionName,RegionType,StateName,BaseDate,2026-09-30,2026-11-30,2027-08-31
+102001,0,United States,country,,2026-08-31,0.4,1.1,4.5
+900101,1,"Lakeview, CA",msa,CA,2026-08-31,0.5,1.4,5.5
+900102,2,"Pine Ridge, TX",msa,TX,2026-08-31,0.3,1.0,4.0
+900103,3,"Twin-Oaks, FL",msa,FL,2026-08-31,0.5,1.5,6.0
+900104,4,"Granite Falls, CO",msa,CO,2026-08-31,0.4,1.2,5.0
+900105,5,"Maple Grove, CO",msa,CO,2026-08-31,0.3,0.9,3.5
