@@ -12,7 +12,7 @@ dist/
 build/
 
 # Local data: warehouse files, raw archive, downloads. Never commit source data.
-data/
+/data/
 *.duckdb
 *.duckdb.wal
 
