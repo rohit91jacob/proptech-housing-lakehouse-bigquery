@@ -1,0 +1,495 @@
+# Catalog of source datasets. Single source of truth for ingestion, validation and the
+# generated dbt sources file (`proptech dbt-sources`). Paths are relative to
+# PROPTECH_ZILLOW_BASE_URL (default https://files.zillowstatic.com/research/public_csvs).
+#
+# kind:        timeseries (wide month columns) | forecast (BaseDate + horizon columns)
+# geography:   the dominant RegionType in the file (metro files also carry a "country" row)
+# unit:        usd | usd_per_month | count | ratio | percent | index | days
+# profiles:    core (sandbox-friendly, ~40 MB of CSV) | extended (adds city/ZIP, ~400 MB)
+# min_regions: lower bound on rows; a smaller file is treated as a truncated download
+# value_range: inclusive bounds every non-null value must satisfy
+
+defaults:
+  smoothed: true
+  seasonally_adjusted: false
+  profiles: [core, extended]
+
+datasets:
+  # ---------------------------------------------------------------- home values (ZHVI)
+  - key: zhvi_metro_mid_all
+    family: zhvi
+    metric: home_value
+    path: zhvi/Metro_zhvi_uc_sfrcondo_tier_0.33_0.67_sm_sa_month.csv
+    geography: metro
+    unit: usd
+    tier: mid
+    property_type: sfrcondo
+    seasonally_adjusted: true
+    min_regions: 800
+    value_range: [1000, 100000000]
+    description: Typical home value (35th-65th percentile), all homes, smoothed & seasonally adjusted.
+  - key: zhvi_metro_bottom_all
+    family: zhvi
+    metric: home_value
+    path: zhvi/Metro_zhvi_uc_sfrcondo_tier_0.0_0.33_sm_sa_month.csv
+    geography: metro
+    unit: usd
+    tier: bottom
+    property_type: sfrcondo
+    seasonally_adjusted: true
+    min_regions: 800
+    value_range: [500, 100000000]
+    description: Bottom-tier (5th-35th percentile) home value, all homes.
+  - key: zhvi_metro_top_all
+    family: zhvi
+    metric: home_value
+    path: zhvi/Metro_zhvi_uc_sfrcondo_tier_0.67_1.0_sm_sa_month.csv
+    geography: metro
+    unit: usd
+    tier: top
+    property_type: sfrcondo
+    seasonally_adjusted: true
+    min_regions: 800
+    value_range: [1000, 200000000]
+    description: Top-tier (65th-95th percentile) home value, all homes.
+  - key: zhvi_metro_mid_sfr
+    family: zhvi
+    metric: home_value
+    path: zhvi/Metro_zhvi_uc_sfr_tier_0.33_0.67_sm_sa_month.csv
+    geography: metro
+    unit: usd
+    tier: mid
+    property_type: sfr
+    seasonally_adjusted: true
+    min_regions: 800
+    value_range: [1000, 100000000]
+    description: Typical single-family home value.
+  - key: zhvi_metro_mid_condo
+    family: zhvi
+    metric: home_value
+    path: zhvi/Metro_zhvi_uc_condo_tier_0.33_0.67_sm_sa_month.csv
+    geography: metro
+    unit: usd
+    tier: mid
+    property_type: condo
+    seasonally_adjusted: true
+    min_regions: 400
+    value_range: [1000, 100000000]
+    description: Typical condo/co-op home value.
+  - key: zhvi_metro_mid_bed1
+    family: zhvi
+    metric: home_value
+    path: zhvi/Metro_zhvi_bdrmcnt_1_uc_sfrcondo_tier_0.33_0.67_sm_sa_month.csv
+    geography: metro
+    unit: usd
+    tier: mid
+    property_type: sfrcondo
+    bedrooms: 1
+    seasonally_adjusted: true
+    min_regions: 500
+    value_range: [500, 100000000]
+    description: Typical 1-bedroom home value.
+  - key: zhvi_metro_mid_bed2
+    family: zhvi
+    metric: home_value
+    path: zhvi/Metro_zhvi_bdrmcnt_2_uc_sfrcondo_tier_0.33_0.67_sm_sa_month.csv
+    geography: metro
+    unit: usd
+    tier: mid
+    property_type: sfrcondo
+    bedrooms: 2
+    seasonally_adjusted: true
+    min_regions: 700
+    value_range: [500, 100000000]
+    description: Typical 2-bedroom home value.
+  - key: zhvi_metro_mid_bed3
+    family: zhvi
+    metric: home_value
+    path: zhvi/Metro_zhvi_bdrmcnt_3_uc_sfrcondo_tier_0.33_0.67_sm_sa_month.csv
+    geography: metro
+    unit: usd
+    tier: mid
+    property_type: sfrcondo
+    bedrooms: 3
+    seasonally_adjusted: true
+    min_regions: 800
+    value_range: [500, 100000000]
+    description: Typical 3-bedroom home value.
+  - key: zhvi_metro_mid_bed4
+    family: zhvi
+    metric: home_value
+    path: zhvi/Metro_zhvi_bdrmcnt_4_uc_sfrcondo_tier_0.33_0.67_sm_sa_month.csv
+    geography: metro
+    unit: usd
+    tier: mid
+    property_type: sfrcondo
+    bedrooms: 4
+    seasonally_adjusted: true
+    min_regions: 800
+    value_range: [500, 100000000]
+    description: Typical 4-bedroom home value.
+  - key: zhvi_metro_mid_bed5
+    family: zhvi
+    metric: home_value
+    path: zhvi/Metro_zhvi_bdrmcnt_5_uc_sfrcondo_tier_0.33_0.67_sm_sa_month.csv
+    geography: metro
+    unit: usd
+    tier: mid
+    property_type: sfrcondo
+    bedrooms: 5
+    seasonally_adjusted: true
+    min_regions: 600
+    value_range: [500, 200000000]
+    description: Typical 5+ bedroom home value.
+  - key: zhvi_state_mid_all
+    family: zhvi
+    metric: home_value
+    path: zhvi/State_zhvi_uc_sfrcondo_tier_0.33_0.67_sm_sa_month.csv
+    geography: state
+    unit: usd
+    tier: mid
+    property_type: sfrcondo
+    seasonally_adjusted: true
+    min_regions: 50
+    value_range: [1000, 100000000]
+    description: Typical home value by state.
+  - key: zhvi_county_mid_all
+    family: zhvi
+    metric: home_value
+    path: zhvi/County_zhvi_uc_sfrcondo_tier_0.33_0.67_sm_sa_month.csv
+    geography: county
+    unit: usd
+    tier: mid
+    property_type: sfrcondo
+    seasonally_adjusted: true
+    min_regions: 2500
+    value_range: [500, 100000000]
+    description: Typical home value by county (carries state/county FIPS codes).
+  - key: zhvi_city_mid_all
+    family: zhvi
+    metric: home_value
+    path: zhvi/City_zhvi_uc_sfrcondo_tier_0.33_0.67_sm_sa_month.csv
+    geography: city
+    unit: usd
+    tier: mid
+    property_type: sfrcondo
+    seasonally_adjusted: true
+    min_regions: 15000
+    value_range: [500, 200000000]
+    profiles: [extended]
+    description: Typical home value by city.
+  - key: zhvi_zip_mid_all
+    family: zhvi
+    metric: home_value
+    path: zhvi/Zip_zhvi_uc_sfrcondo_tier_0.33_0.67_sm_sa_month.csv
+    geography: zip
+    unit: usd
+    tier: mid
+    property_type: sfrcondo
+    seasonally_adjusted: true
+    min_regions: 20000
+    value_range: [500, 200000000]
+    profiles: [extended]
+    description: Typical home value by ZIP code.
+
+  # ---------------------------------------------------------------- rents (ZORI)
+  - key: zori_metro_all
+    family: zori
+    metric: rent
+    path: zori/Metro_zori_uc_sfrcondomfr_sm_month.csv
+    geography: metro
+    unit: usd_per_month
+    property_type: sfrcondomfr
+    min_regions: 500
+    value_range: [100, 100000]
+    description: Observed rent index, all homes plus multifamily, smoothed.
+  - key: zori_metro_sfr
+    family: zori
+    metric: rent
+    path: zori/Metro_zori_uc_sfr_sm_month.csv
+    geography: metro
+    unit: usd_per_month
+    property_type: sfr
+    min_regions: 400
+    value_range: [100, 100000]
+    description: Observed rent index, single-family residences.
+  - key: zori_metro_mfr
+    family: zori
+    metric: rent
+    path: zori/Metro_zori_uc_mfr_sm_month.csv
+    geography: metro
+    unit: usd_per_month
+    property_type: mfr
+    min_regions: 300
+    value_range: [100, 100000]
+    description: Observed rent index, multifamily (5+ units).
+  - key: zori_county_all
+    family: zori
+    metric: rent
+    path: zori/County_zori_uc_sfrcondomfr_sm_month.csv
+    geography: county
+    unit: usd_per_month
+    property_type: sfrcondomfr
+    min_regions: 1000
+    value_range: [100, 100000]
+    description: Observed rent index by county (carries state/county FIPS codes).
+  - key: zori_city_all
+    family: zori
+    metric: rent
+    path: zori/City_zori_uc_sfrcondomfr_sm_month.csv
+    geography: city
+    unit: usd_per_month
+    property_type: sfrcondomfr
+    min_regions: 2000
+    value_range: [100, 100000]
+    profiles: [extended]
+    description: Observed rent index by city.
+  - key: zori_zip_all
+    family: zori
+    metric: rent
+    path: zori/Zip_zori_uc_sfrcondomfr_sm_month.csv
+    geography: zip
+    unit: usd_per_month
+    property_type: sfrcondomfr
+    min_regions: 5000
+    value_range: [100, 100000]
+    profiles: [extended]
+    description: Observed rent index by ZIP code.
+
+  # ---------------------------------------------------------------- forecasts (ZHVF)
+  - key: zhvf_metro_mid_all
+    family: zhvf
+    kind: forecast
+    metric: home_value_growth_forecast
+    path: zhvf_growth/Metro_zhvf_growth_uc_sfrcondo_tier_0.33_0.67_sm_sa_month.csv
+    geography: metro
+    unit: percent
+    tier: mid
+    property_type: sfrcondo
+    seasonally_adjusted: true
+    min_regions: 800
+    value_range: [-60, 60]
+    description: Forecast % change in ZHVI from BaseDate to each horizon month.
+  - key: zhvf_zip_mid_all
+    family: zhvf
+    kind: forecast
+    metric: home_value_growth_forecast
+    path: zhvf_growth/Zip_zhvf_growth_uc_sfrcondo_tier_0.33_0.67_sm_sa_month.csv
+    geography: zip
+    unit: percent
+    tier: mid
+    property_type: sfrcondo
+    seasonally_adjusted: true
+    min_regions: 15000
+    value_range: [-60, 60]
+    profiles: [extended]
+    description: ZIP-level ZHVI growth forecast.
+
+  # ---------------------------------------------------------------- for-sale market (metro)
+  - key: inventory_metro
+    family: market
+    metric: for_sale_inventory
+    path: invt_fs/Metro_invt_fs_uc_sfrcondo_sm_month.csv
+    geography: metro
+    unit: count
+    property_type: sfrcondo
+    min_regions: 800
+    value_range: [0, 10000000]
+    description: Count of unique listings active during the month (smoothed).
+  - key: new_listings_metro
+    family: market
+    metric: new_listings
+    path: new_listings/Metro_new_listings_uc_sfrcondo_sm_month.csv
+    geography: metro
+    unit: count
+    property_type: sfrcondo
+    min_regions: 800
+    value_range: [0, 10000000]
+    description: Listings that came on the market during the month (smoothed).
+  - key: new_pending_metro
+    family: market
+    metric: newly_pending
+    path: new_pending/Metro_new_pending_uc_sfrcondo_sm_month.csv
+    geography: metro
+    unit: count
+    property_type: sfrcondo
+    min_regions: 500
+    value_range: [0, 10000000]
+    description: Listings that went pending during the month (smoothed).
+  - key: median_list_price_metro
+    family: market
+    metric: median_list_price
+    path: mlp/Metro_mlp_uc_sfrcondo_sm_month.csv
+    geography: metro
+    unit: usd
+    property_type: sfrcondo
+    min_regions: 800
+    value_range: [1000, 100000000]
+    description: Median list price of active listings (smoothed).
+  - key: median_sale_price_metro
+    family: market
+    metric: median_sale_price
+    path: median_sale_price/Metro_median_sale_price_uc_sfrcondo_sm_month.csv
+    geography: metro
+    unit: usd
+    property_type: sfrcondo
+    min_regions: 500
+    value_range: [1000, 100000000]
+    description: Median sale price (smoothed).
+  - key: median_sale_to_list_metro
+    family: market
+    metric: median_sale_to_list
+    path: median_sale_to_list/Metro_median_sale_to_list_uc_sfrcondo_sm_month.csv
+    geography: metro
+    unit: ratio
+    property_type: sfrcondo
+    min_regions: 500
+    value_range: [0.3, 3.0]
+    description: Median ratio of sale price to final list price (smoothed).
+  - key: pct_sold_above_list_metro
+    family: market
+    metric: share_sold_above_list
+    path: pct_sold_above_list/Metro_pct_sold_above_list_uc_sfrcondo_sm_month.csv
+    geography: metro
+    unit: ratio
+    property_type: sfrcondo
+    min_regions: 500
+    value_range: [0, 1]
+    description: Share of homes sold above list price (smoothed).
+  - key: pct_sold_below_list_metro
+    family: market
+    metric: share_sold_below_list
+    path: pct_sold_below_list/Metro_pct_sold_below_list_uc_sfrcondo_sm_month.csv
+    geography: metro
+    unit: ratio
+    property_type: sfrcondo
+    min_regions: 500
+    value_range: [0, 1]
+    description: Share of homes sold below list price (smoothed).
+  - key: median_days_to_pending_metro
+    family: market
+    metric: median_days_to_pending
+    path: med_doz_pending/Metro_med_doz_pending_uc_sfrcondo_sm_month.csv
+    geography: metro
+    unit: days
+    property_type: sfrcondo
+    min_regions: 300
+    value_range: [0, 1000]
+    description: Median days from listing to pending (smoothed).
+  - key: share_price_cut_metro
+    family: market
+    metric: share_listings_price_cut
+    path: perc_listings_price_cut/Metro_perc_listings_price_cut_uc_sfrcondo_sm_month.csv
+    geography: metro
+    unit: ratio
+    property_type: sfrcondo
+    min_regions: 800
+    value_range: [0, 1]
+    description: Share of listings with a price cut during the month (smoothed).
+  - key: sales_count_metro
+    family: market
+    metric: sales_count
+    path: sales_count_now/Metro_sales_count_now_uc_sfrcondo_month.csv
+    geography: metro
+    unit: count
+    property_type: sfrcondo
+    smoothed: false
+    min_regions: 250
+    value_range: [0, 10000000]
+    description: Estimated count of homes sold (nowcast), raw.
+  - key: market_heat_index_metro
+    family: market
+    metric: market_heat_index
+    path: market_temp_index/Metro_market_temp_index_uc_sfrcondo_month.csv
+    geography: metro
+    unit: index
+    property_type: sfrcondo
+    smoothed: false
+    min_regions: 800
+    # Unbounded index centred near 50; real values span roughly -120..280.
+    value_range: [-1000, 1000]
+    description: Zillow Market Heat Index (>= 70 strong seller's market, <= 28 strong buyer's market).
+
+  # ---------------------------------------------------------------- Zillow affordability (metro)
+  - key: total_monthly_payment_metro
+    family: affordability
+    metric: total_monthly_payment
+    path: total_monthly_payment/Metro_total_monthly_payment_downpayment_0.20_uc_sfrcondo_tier_0.33_0.67_sm_sa_month.csv
+    geography: metro
+    unit: usd
+    tier: mid
+    property_type: sfrcondo
+    seasonally_adjusted: true
+    min_regions: 300
+    value_range: [10, 1000000]
+    description: Zillow's typical total monthly housing payment with 20% down.
+  - key: homeowner_income_needed_metro
+    family: affordability
+    metric: homeowner_income_needed
+    path: new_homeowner_income_needed/Metro_new_homeowner_income_needed_downpayment_0.20_uc_sfrcondo_tier_0.33_0.67_sm_sa_month.csv
+    geography: metro
+    unit: usd
+    tier: mid
+    property_type: sfrcondo
+    seasonally_adjusted: true
+    min_regions: 300
+    value_range: [100, 100000000]
+    description: Annual income Zillow estimates is needed to afford the typical home (20% down).
+  - key: homeowner_affordability_metro
+    family: affordability
+    metric: homeowner_affordability
+    path: new_homeowner_affordability/Metro_new_homeowner_affordability_downpayment_0.20_uc_sfrcondo_tier_0.33_0.67_sm_sa_month.csv
+    geography: metro
+    unit: ratio
+    tier: mid
+    property_type: sfrcondo
+    seasonally_adjusted: true
+    min_regions: 300
+    value_range: [0, 10]
+    description: Share of median household income spent on the typical total monthly payment.
+  - key: renter_income_needed_metro
+    family: affordability
+    metric: renter_income_needed
+    path: new_renter_income_needed/Metro_new_renter_income_needed_uc_sfrcondomfr_sm_sa_month.csv
+    geography: metro
+    unit: usd
+    property_type: sfrcondomfr
+    seasonally_adjusted: true
+    min_regions: 300
+    value_range: [100, 100000000]
+    description: Annual income Zillow estimates is needed to afford the typical rent.
+  - key: renter_affordability_metro
+    family: affordability
+    metric: renter_affordability
+    path: new_renter_affordability/Metro_new_renter_affordability_uc_sfrcondomfr_sm_sa_month.csv
+    geography: metro
+    unit: ratio
+    property_type: sfrcondomfr
+    seasonally_adjusted: true
+    min_regions: 300
+    value_range: [0, 10]
+    description: Share of median renter household income spent on the typical rent.
+
+  # ---------------------------------------------------------------- new construction (metro)
+  - key: new_construction_sales_metro
+    family: new_construction
+    metric: new_construction_sales_count
+    path: new_con_sales_count_raw/Metro_new_con_sales_count_raw_uc_sfrcondo_month.csv
+    geography: metro
+    unit: count
+    property_type: sfrcondo
+    smoothed: false
+    min_regions: 100
+    value_range: [0, 10000000]
+    description: Count of newly constructed homes sold, raw.
+  - key: new_construction_price_metro
+    family: new_construction
+    metric: new_construction_median_sale_price
+    path: new_con_median_sale_price/Metro_new_con_median_sale_price_uc_sfrcondo_month.csv
+    geography: metro
+    unit: usd
+    property_type: sfrcondo
+    smoothed: false
+    min_regions: 100
+    value_range: [1000, 100000000]
+    description: Median sale price of newly constructed homes, raw.
