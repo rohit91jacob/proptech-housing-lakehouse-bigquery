@@ -1,0 +1,170 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_FROZEN: "1"
+  PYTHON_VERSION: "3.12"
+  DBT_PROFILES_DIR: ${{ github.workspace }}/dbt
+  DBT_PROJECT_DIR: ${{ github.workspace }}/dbt
+
+jobs:
+  lint:
+    name: lint (ruff, generated files, BigQuery SQL compile + parse)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+      - run: uv sync
+      - name: ruff
+        run: |
+          uv run ruff check src tests --output-format github
+          uv run ruff format --check src tests
+      - name: generated dbt artifacts are up to date
+        run: uv run proptech dbt-sources --check
+      - run: uv run dbt deps
+      - name: compile BigQuery SQL offline and parse it (prod + sandbox flavours)
+        run: |
+          for flavour in prod sandbox; do
+            uv run dbt compile --target offline --no-populate-cache \
+              --target-path "target-bq-$flavour" --vars "{deployment: $flavour}"
+            uv run sqlfluff parse --dialect bigquery --templater raw \
+              "dbt/target-bq-$flavour/compiled/proptech/models" > /dev/null
+          done
+
+  test:
+    name: pytest
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+      - run: uv sync
+      - run: uv run pytest --cov --cov-report=term-missing --cov-report=xml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.xml
+
+  dbt-duckdb:
+    name: end-to-end on DuckDB (fixtures -> ingest -> dbt build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PROPTECH_TARGET: duckdb
+      PROPTECH_DUCKDB_PATH: ${{ github.workspace }}/data/warehouse/ci.duckdb
+      PROPTECH_RAW_ARCHIVE_URI: ${{ github.workspace }}/data/archive
+      PROPTECH_ZILLOW_BASE_URL: file://${{ github.workspace }}/tests/fixtures/sources/zillow
+      PROPTECH_PMMS_URL: file://${{ github.workspace }}/tests/fixtures/sources/pmms/PMMS_history.csv
+      PROPTECH_ACS_BASE_URL: file://${{ github.workspace }}/tests/fixtures/sources/acs
+      PROPTECH_RELAXED_VALIDATION: "true"
+      DBT_TARGET: local
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+      - run: uv sync
+      - name: ingest fixtures
+        run: uv run proptech --no-json-logs ingest --summary-json data/ingest-summary.json
+      - name: re-ingest is a no-op
+        run: |
+          uv run proptech --no-json-logs ingest --summary-json data/ingest-rerun.json
+          python3 -c "import json,sys; d=json.load(open('data/ingest-rerun.json')); bad=[e['dataset_key'] for e in d['entries'] if e['status']!='unchanged']; sys.exit(f'reloaded on rerun: {bad}' if bad else 0)"
+      - run: uv run dbt deps
+      # Fixtures contain one deliberately unmappable metro out of five (see dbt/models/marts/_marts__models.yml)
+      - name: dbt build (models, data tests, unit tests)
+        run: uv run dbt build --vars '{max_unmapped_peer_share: 0.25}'
+      - name: dbt source freshness
+        run: uv run dbt source freshness
+      - name: dbt docs
+        run: uv run dbt docs generate --static
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dbt-duckdb-artifacts
+          path: |
+            data/ingest-*.json
+            dbt/target/run_results.json
+            dbt/target/manifest.json
+            dbt/target/static_index.html
+
+  bigquery-preflight:
+    name: BigQuery credentials present?
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - id: check
+        env:
+          HAS_KEY: ${{ secrets.GCP_SA_KEY != '' }}
+          HAS_WIF: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && vars.GCP_SERVICE_ACCOUNT != '' }}
+          HAS_PROJECT: ${{ vars.GCP_PROJECT_ID != '' }}
+          SAME_REPO: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        run: |
+          if [[ "$HAS_PROJECT" == "true" && ( "$HAS_KEY" == "true" || "$HAS_WIF" == "true" ) && "$SAME_REPO" == "true" ]]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=BigQuery CI skipped::Set vars.GCP_PROJECT_ID and either vars.GCP_WORKLOAD_IDENTITY_PROVIDER + vars.GCP_SERVICE_ACCOUNT or secrets.GCP_SA_KEY (see docs/gcp_setup.md)."
+          fi
+
+  bigquery:
+    name: dbt build on BigQuery (ci_ datasets, views only)
+    needs: [bigquery-preflight, dbt-duckdb]
+    if: needs.bigquery-preflight.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      PROPTECH_TARGET: bigquery
+      PROPTECH_ENV: sandbox
+      PROPTECH_BQ_PROJECT: ${{ vars.GCP_PROJECT_ID }}
+      PROPTECH_BQ_LOCATION: ${{ vars.GCP_LOCATION || 'US' }}
+      PROPTECH_BQ_DATASET_PREFIX: ci_
+      PROPTECH_RAW_ARCHIVE_URI: ${{ github.workspace }}/data/archive
+      PROPTECH_ZILLOW_BASE_URL: file://${{ github.workspace }}/tests/fixtures/sources/zillow
+      PROPTECH_PMMS_URL: file://${{ github.workspace }}/tests/fixtures/sources/pmms/PMMS_history.csv
+      PROPTECH_ACS_BASE_URL: file://${{ github.workspace }}/tests/fixtures/sources/acs
+      PROPTECH_RELAXED_VALIDATION: "true"
+      DBT_TARGET: ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+      - run: uv sync
+      - name: storage budget gate
+        run: uv run proptech budget --fail-above 0.9
+      - name: ingest fixtures into ci_ datasets
+        run: uv run proptech --no-json-logs ingest
+      - run: uv run dbt deps
+      - name: dbt build (everything as views on the ci target: zero storage)
+        run: uv run dbt build --vars '{max_unmapped_peer_share: 0.25}'

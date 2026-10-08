@@ -1,0 +1,30 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: ^tests/fixtures/
+      - id: end-of-file-fixer
+        exclude: ^tests/fixtures/
+      - id: check-yaml
+        args: [--unsafe] # dbt YAML uses anchors and Jinja strings
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: detect-private-key
+      - id: check-merge-conflict
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.10
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: dbt-sources-in-sync
+        name: generated dbt artifacts match config/datasets.yml
+        entry: uv run proptech dbt-sources --check
+        language: system
+        files: ^(config/datasets\.yml|src/proptech/dbt_sources\.py|dbt/models/staging/zillow/_zillow__sources\.yml|dbt/macros/generated/.*|dbt/seeds/zillow_datasets\.csv)$
+        pass_filenames: false
