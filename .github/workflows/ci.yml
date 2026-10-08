@@ -120,13 +120,16 @@ jobs:
           HAS_KEY: ${{ secrets.GCP_SA_KEY != '' }}
           HAS_WIF: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && vars.GCP_SERVICE_ACCOUNT != '' }}
           HAS_PROJECT: ${{ vars.GCP_PROJECT_ID != '' }}
-          SAME_REPO: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+          # Each BigQuery build bills ~20 GiB of the sandbox's free 1 TiB/month (10 MiB minimum per
+          # table referenced per query), so it runs on main and on demand, not on every PR.
+          RUN_HERE: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
         run: |
-          if [[ "$HAS_PROJECT" == "true" && ( "$HAS_KEY" == "true" || "$HAS_WIF" == "true" ) && "$SAME_REPO" == "true" ]]; then
+          # A service-account key carries its project; WIF needs vars.GCP_PROJECT_ID.
+          if [[ "$RUN_HERE" == "true" && ( "$HAS_KEY" == "true" || ( "$HAS_WIF" == "true" && "$HAS_PROJECT" == "true" ) ) ]]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           else
             echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "::notice title=BigQuery CI skipped::Set vars.GCP_PROJECT_ID and either vars.GCP_WORKLOAD_IDENTITY_PROVIDER + vars.GCP_SERVICE_ACCOUNT or secrets.GCP_SA_KEY (see docs/gcp_setup.md)."
+            echo "::notice title=BigQuery CI skipped::Runs on pushes to main and manual runs once secrets.GCP_SA_KEY (or WIF variables + vars.GCP_PROJECT_ID) exist; see docs/gcp_setup.md."
           fi
 
   bigquery:
@@ -161,6 +164,9 @@ jobs:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
           credentials_json: ${{ secrets.GCP_SA_KEY }}
+      - name: default the project to the credentials' project
+        run: |
+          if [[ -z "$PROPTECH_BQ_PROJECT" ]]; then echo "PROPTECH_BQ_PROJECT=$GOOGLE_CLOUD_PROJECT" >> "$GITHUB_ENV"; fi
       - run: uv sync
       - name: storage budget gate
         run: uv run proptech budget --fail-above 0.9

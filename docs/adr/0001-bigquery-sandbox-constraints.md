@@ -39,6 +39,16 @@ state:
    and immutable, to `PROPTECH_RAW_ARCHIVE_URI` (local disk, or GCS on billing-enabled
    projects).
 
+## Observed on a live sandbox (October 2026)
+
+- Datasets get a forced 60-day default table and partition expiration.
+- Patching a table's `expires` is accepted, so the 59-day re-stamp works.
+- Parquet load jobs (`WRITE_TRUNCATE` and `WRITE_APPEND`), `CREATE OR REPLACE TABLE/VIEW`,
+  and metadata reads all work.
+- A full core load plus `dbt build` stores 103.25 MiB. The ledger's estimate is 103.54 MiB.
+- One `dbt build` bills 23.6 GiB of query allowance for 1.07 GiB processed, because of the
+  10 MiB minimum per table per query. This is why BigQuery CI runs only on `main` and on demand.
+
 ## Consequences
 
 - A core-profile run that changes every file writes about 100 MiB of logical storage, so

@@ -1,7 +1,7 @@
 version: 2
 
 # Contract column types use Jinja so one definition validates on BigQuery and DuckDB:
-# 'string', 'bigint', 'date' and 'boolean' are valid in both; 8-byte floats are not.
+# 'string' and 'date' are valid in both; integer and 8-byte float names differ.
 
 models:
   - name: dim_region
@@ -13,7 +13,7 @@ models:
       contract: {enforced: true}
     columns:
       - name: region_id
-        data_type: bigint
+        data_type: "{{ 'int64' if target.type == 'bigquery' else 'bigint' }}"
         description: Zillow RegionID; primary key.
         constraints: [{type: not_null}]
         data_tests: [unique, not_null]
@@ -25,7 +25,7 @@ models:
         data_type: string
         description: Zillow region name ("New York, NY", "Cook County", "California", ZIP code).
       - name: size_rank
-        data_type: bigint
+        data_type: "{{ 'int64' if target.type == 'bigquery' else 'bigint' }}"
         description: Zillow population-based rank within the geography level (0 = largest).
       - name: state_code
         data_type: string
@@ -52,13 +52,13 @@ models:
         data_type: string
         description: metro | micro statistical area.
       - name: cbsa_acs_year
-        data_type: bigint
+        data_type: "{{ 'int64' if target.type == 'bigquery' else 'bigint' }}"
         description: ACS vintage the CBSA mapping comes from.
       - name: cbsa_match_method
         data_type: string
         description: override (seed) | name_match | null when unmapped.
       - name: dataset_count
-        data_type: bigint
+        data_type: "{{ 'int64' if target.type == 'bigquery' else 'bigint' }}"
         description: Number of loaded Zillow files that contain the region.
 
   - name: dim_zillow_dataset
@@ -157,7 +157,7 @@ models:
           arguments: {combination_of_columns: [region_id, month_end]}
     columns:
       - name: region_id
-        data_type: bigint
+        data_type: "{{ 'int64' if target.type == 'bigquery' else 'bigint' }}"
         constraints: [{type: not_null}]
       - name: geo_level
         data_type: string
@@ -181,7 +181,7 @@ models:
           - dbt_utils.accepted_range:
               arguments: {min_value: 0, inclusive: false}
       - name: income_acs_year
-        data_type: bigint
+        data_type: "{{ 'int64' if target.type == 'bigquery' else 'bigint' }}"
         description: ACS survey year of the income used (may lag the month by up to two years).
       - name: median_household_income
         data_type: "{{ 'float64' if target.type == 'bigquery' else 'double' }}"
@@ -252,13 +252,13 @@ models:
           arguments: {expression: "momentum_rank >= 1"}
     columns:
       - name: region_id
-        data_type: bigint
+        data_type: "{{ 'int64' if target.type == 'bigquery' else 'bigint' }}"
         constraints: [{type: not_null}]
         data_tests: [unique, not_null]
       - name: region_name
         data_type: string
       - name: size_rank
-        data_type: bigint
+        data_type: "{{ 'int64' if target.type == 'bigquery' else 'bigint' }}"
       - name: state_code
         data_type: string
       - name: cbsa_code
@@ -300,7 +300,7 @@ models:
         data_type: "{{ 'float64' if target.type == 'bigquery' else 'double' }}"
         description: Mean of the available signed z-scores.
       - name: momentum_rank
-        data_type: bigint
+        data_type: "{{ 'int64' if target.type == 'bigquery' else 'bigint' }}"
         description: 1 = strongest momentum.
         data_tests: [unique, not_null]
 

@@ -14,7 +14,7 @@ models:
               arguments: {min_value: 0, max_value: 25, inclusive: false}
     data_tests:
       - dbt_utils.recency:
-          arguments: {datepart: day, field: week_date, interval: 21}
+          arguments: {datepart: day, field: week_date, interval: 21, ignore_time_component: true}
           config: {severity: warn}
 
   - name: stg_census__acs_household_income

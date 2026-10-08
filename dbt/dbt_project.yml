@@ -48,14 +48,22 @@ seeds:
   proptech:
     +schema: seeds
     +quote_columns: false
-    # 'string' and 'bigint' are valid type names in both BigQuery and DuckDB.
+    # Seed schemas: 'string' works on both engines; BigQuery load jobs need INT64, not BIGINT.
     state_codes:
       +column_types: {state_name: string, state_code: string, state_fips: string}
     metro_cbsa_overrides:
-      +column_types: {region_id: bigint, acs_year: bigint, cbsa_code: string, reason: string}
+      +column_types:
+        region_id: "{{ 'int64' if target.type == 'bigquery' else 'bigint' }}"
+        acs_year: "{{ 'int64' if target.type == 'bigquery' else 'bigint' }}"
+        cbsa_code: string
+        reason: string
     zillow_datasets:
       +column_types:
-        {dataset_key: string, tier: string, property_type: string, bedrooms: bigint, profiles: string}
+        dataset_key: string
+        tier: string
+        property_type: string
+        bedrooms: "{{ 'int64' if target.type == 'bigquery' else 'bigint' }}"
+        profiles: string
 
 data_tests:
   proptech:

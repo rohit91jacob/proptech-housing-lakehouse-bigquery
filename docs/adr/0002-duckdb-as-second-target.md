@@ -34,5 +34,7 @@ The same loader and dbt project run on **DuckDB** (`PROPTECH_TARGET=duckdb`, dbt
 - BigQuery-specific behaviour (load-job semantics, expiry refresh, partitioning) is covered
   by unit tests against a mocked client. It is only proven live once credentials exist, when
   the `bigquery` CI job runs automatically.
-- There is a small risk of semantic drift between engines, for example in NULL ordering and
-  float formatting. Models avoid engine-specific functions outside the macros.
+- Drift between engines is real. The first live BigQuery build failed four nodes that DuckDB
+  had passed: `BIGINT` seed types, `WHERE` without `FROM`, and DATE vs TIMESTAMP in
+  `dbt_utils.recency` (two tests). That's why the BigQuery CI job on `main` stays mandatory
+  once credentials exist. Models avoid engine-specific functions outside the macros.

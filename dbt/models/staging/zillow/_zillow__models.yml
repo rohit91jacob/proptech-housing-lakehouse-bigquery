@@ -9,7 +9,7 @@ models:
       - dbt_utils.unique_combination_of_columns:
           arguments: {combination_of_columns: [dataset_key, region_id, month_end]}
       - dbt_utils.recency:
-          arguments: {datepart: day, field: month_end, interval: 100}
+          arguments: {datepart: day, field: month_end, interval: 100, ignore_time_component: true}
           config: {severity: warn}
     columns:
       - name: dataset_key

@@ -1,8 +1,11 @@
 # Google Cloud setup
 
-> **Status.** These steps follow Google's documented setup, but they have **not** been
-> executed for this repository yet. No GCP project was available while it was built. CI
-> skips its BigQuery jobs, with a notice, until the variables and secrets below exist.
+> **Status.**
+> - The service-account-key path (3b) is in use: project `proptech-housing` is a sandbox with
+>   no billing, and its account has BigQuery Data Editor and Job User.
+> - The Workload Identity Federation commands (3a) follow Google's documentation but haven't
+>   been run for this repository.
+> - CI skips its BigQuery jobs, with a notice, until credentials exist.
 
 ## 1. Project with the BigQuery sandbox
 
@@ -61,8 +64,9 @@ Set these **repository variables** (Settings → Secrets and variables → Actio
 gcloud iam service-accounts keys create proptech-sa.json --iam-account "$SA"
 ```
 
-Store the file's contents as the **secret** `GCP_SA_KEY`, and set the `GCP_PROJECT_ID`
-variable. Don't set the WIF variables too: the auth step accepts exactly one method. For
+Store the file's contents as the **secret** `GCP_SA_KEY`. `GCP_PROJECT_ID` is optional on
+this path: the workflows fall back to the key's own project, which `google-github-actions/auth`
+exports as `GOOGLE_CLOUD_PROJECT`. Don't set the WIF variables too: the auth step accepts exactly one method. For
 local runs, `export GOOGLE_APPLICATION_CREDENTIALS=$PWD/proptech-sa.json`. `*-sa.json` is
 git-ignored.
 

@@ -54,7 +54,8 @@ jobs:
           HAS_WIF: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && vars.GCP_SERVICE_ACCOUNT != '' }}
           HAS_PROJECT: ${{ vars.GCP_PROJECT_ID != '' }}
         run: |
-          if [[ "$HAS_PROJECT" == "true" && ( "$HAS_KEY" == "true" || "$HAS_WIF" == "true" ) ]]; then
+          # A service-account key carries its project; WIF needs vars.GCP_PROJECT_ID.
+          if [[ "$HAS_KEY" == "true" || ( "$HAS_WIF" == "true" && "$HAS_PROJECT" == "true" ) ]]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           else
             echo "enabled=false" >> "$GITHUB_OUTPUT"
@@ -90,6 +91,9 @@ jobs:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
           credentials_json: ${{ secrets.GCP_SA_KEY }}
+      - name: default the project to the credentials' project
+        run: |
+          if [[ -z "$PROPTECH_BQ_PROJECT" ]]; then echo "PROPTECH_BQ_PROJECT=$GOOGLE_CLOUD_PROJECT" >> "$GITHUB_ENV"; fi
       - run: uv sync
       - name: record start time
         id: start

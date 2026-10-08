@@ -4,9 +4,9 @@ Operational procedures for the `pipeline` workflow (`.github/workflows/pipeline.
 Commands run from the repo root. The BigQuery commands need the credentials described in
 [gcp_setup.md](gcp_setup.md).
 
-> **Verification status.** Every DuckDB command in this runbook has been run against real
-> source data. The BigQuery paths are covered by unit tests against a mocked client and by an
-> offline BigQuery compile in CI. They have **not** yet been run against a live GCP project.
+> **Verification status.** The ingest, `dbt build`, budget and rerun commands have been run
+> against real source data, both on a live BigQuery sandbox project and on DuckDB. The
+> extended profile and the GCS archive have not been run yet.
 
 ## Normal operation
 

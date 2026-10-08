@@ -22,10 +22,10 @@ This is a production-style ELT pipeline for the US housing market. It covers:
   - Forecast-accuracy tracking
 
 > **Status.** The full pipeline (ingest → validate → load → `dbt build`) has been run on the
-> **real** September 2026 Zillow, PMMS and ACS data in DuckDB. The BigQuery path has been
-> compiled and parsed for BigQuery and unit-tested against a mocked client. It has **not yet
-> run against a live GCP project**. The CI BigQuery job and the scheduled pipeline skip, with a
-> notice, until credentials are configured ([docs/gcp_setup.md](docs/gcp_setup.md)).
+> **real** September 2026 Zillow, PMMS and ACS data, both in a **live BigQuery sandbox project**
+> and in DuckDB. On BigQuery: 38 of 38 sources loaded, `dbt build` had 125 passes and 0
+> failures, and all 237,134 published metro ZHVI cells matched exactly. See
+> [Verified on the real data](#verified-on-the-real-data-september-2026-vintage).
 
 ## Architecture
 
@@ -162,7 +162,7 @@ select momentum_rank, region_name, round(momentum_score, 2) as score,
 from marts.mart_metro_momentum_rankings order by momentum_rank limit 5;
 ```
 
-### 3. BigQuery (sandbox). Not yet verified against a live project.
+### 3. BigQuery (sandbox)
 
 ```bash
 export PROPTECH_TARGET=bigquery PROPTECH_ENV=sandbox PROPTECH_BQ_PROJECT=<project> DBT_TARGET=sandbox
@@ -220,7 +220,7 @@ make dbt-build-fixtures
 | `lint` | Ruff passes. The generated dbt files match the catalog. **BigQuery SQL compiles** for the `prod` and `sandbox` flavours without credentials (`--target offline`, no queries run) and parses under sqlfluff's BigQuery dialect. |
 | `test` | 53 pytest tests with coverage. They include sandbox load-job semantics against a mocked BigQuery client: `WRITE_TRUNCATE`, no partitions, expiry refresh, and month partitions on prod. |
 | `dbt-duckdb` | End-to-end run on fixtures: ingest, then a re-ingest that must be a no-op, then `dbt build` (95 data tests, 5 unit tests, 3 contracts), `dbt source freshness` and `dbt docs generate`. |
-| `bigquery-preflight` / `bigquery` | When credentials exist: ingest fixtures into `ci_` datasets and `dbt build --target ci` (everything as views, so no storage). Otherwise skipped with a notice. |
+| `bigquery-preflight` / `bigquery` | On pushes to `main` and manual runs, once credentials exist: ingest fixtures into `ci_` datasets and `dbt build --target ci`, which builds everything as views and so uses no storage. It is skipped on PRs to save the sandbox's query allowance (see below). |
 
 Pre-commit hooks (`uv run pre-commit install`) run ruff, YAML checks, large-file and
 private-key detection, and the dbt-sources drift check.
@@ -296,31 +296,58 @@ The full rationale is in [docs/adr](docs/adr).
 5. **Metro → CBSA crosswalk by principal-city name, per ACS vintage** ([ADR 0005](docs/adr/0005-metro-to-cbsa-crosswalk.md)).
    All 394 metros within Zillow's top 400 size ranks are mapped on the real data.
 
-### Verified on the real data (September 2026 vintage, DuckDB)
+### Verified on the real data (September 2026 vintage)
 
-- **Values reproduced exactly:** 1,280 of 1,280 headline-ZHVI cells checked (US, New York,
-  Los Angeles, Chicago, all months) equal Zillow's published CSV values exactly. The dbt
-  singular test `assert_home_values_match_source` enforces this for every metro and month.
+Both the live BigQuery sandbox project and DuckDB were checked.
+
+- **Values reproduced exactly:**
+  - BigQuery: all 237,134 published metro ZHVI cells (895 regions, every month) equal
+    Zillow's CSV, with no extra rows.
+  - DuckDB: 1,280 of 1,280 cells checked match.
+  - The dbt singular test `assert_home_values_match_source` enforces this on every build.
+- **Same results on both engines:** every mart has the same row count on BigQuery and DuckDB,
+  for example 2,858,516 rows in `fct_home_values_monthly`. Affordability figures and rankings
+  are identical too.
+- **BigQuery sandbox behaviour observed:**
+  - Datasets carry a forced 60-day default table and partition expiration
+    (`5184000000` ms).
+  - Updating a table's `expires` *is* allowed. The loader's re-stamp to +59 days took effect.
+  - Load jobs and `CREATE OR REPLACE TABLE/VIEW` work. No DML is used.
+- **Storage:** 103.25 MiB is stored after a full core load and `dbt build`. 101.7 MiB of that
+  is raw, and the marts are 0.68 MiB because the long series are views. The ledger estimate
+  is 103.54 MiB: the conservative estimate is within 0.3%.
+- **Query allowance:** one sandbox `dbt build` (126 nodes, about 95 of them tests) processes
+  1.07 GiB but bills 23.6 GiB, because BigQuery bills a 10 MiB minimum per table per query.
+  The free 1 TiB/month therefore covers about 40 builds, which is why BigQuery CI doesn't run
+  on PRs.
 - **US typical home value:** $368,697 in August 2026, +1.17% YoY.
 - **US affordability, August 2026:** 6.67% average 30-year rate. Principal and interest is
   $1,897 a month, which is 27.9% of the 2024 ACS median income ($81,604). Zillow's total
   payment, which adds taxes and insurance, is $2,500, or 34.1% of Zillow's implied income of
   about $87,978.
 - **Momentum peers:** 100 of 100 mapped to a CBSA.
-- **Rerun idempotency:** identical mart fingerprints after a rerun.
+- **Rerun idempotency:**
+  - On BigQuery, a second ingest left all 38 sources unchanged and wrote 0 bytes.
+  - A second `dbt build` reproduced the same per-mart `bit_xor(farm_fingerprint(...))`
+    digest (`83fb0f244d9a62bc`).
+  - DuckDB fingerprints were identical as well.
 
 ### Known limitations
 
-- **BigQuery not yet exercised live.** The `bigquery` CI job and the scheduled pipeline will do
-  that once credentials exist. Until then, behaviour is backed by the mocked-client tests and
-  the offline compile.
+- **DuckDB isn't a perfect stand-in for BigQuery.** The first live BigQuery build caught four
+  issues that DuckDB accepted:
+  - `BIGINT` isn't a valid seed or load-schema type.
+  - `WHERE` without `FROM` is rejected.
+  - The DATE vs TIMESTAMP comparison in `dbt_utils.recency` fails.
+  These are fixed. BigQuery CI on `main` is the guard against this kind of drift.
 - **Income coverage.** ACS 1-year estimates only cover areas with 65,000+ people. About 40% of
   Zillow metros, the small ones, have no income-based affordability. Zillow's own
   affordability series still covers 389 metros plus the US.
 - **Forecast accuracy starts empty.** It fills in as monthly runs archive forecast vintages:
   1-month horizons after one more run, 12-month horizons after a year.
 - **Approximate storage ledger.** It is an estimate of Google's sandbox counter, which isn't
-  exposed, and it doesn't see writes made outside the pipeline.
+  exposed, and it doesn't see writes made outside the pipeline. Each run that rebuilds the
+  snapshot marts adds about 0.7 MiB.
 - **Zillow terms not reviewed verbatim.** The terms page couldn't be fetched from the build
   machine. Check them before publishing derived data.
 
