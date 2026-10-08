@@ -93,7 +93,8 @@ jobs:
       - run: uv run dbt deps
       # Fixtures contain one deliberately unmappable metro out of five (see dbt/models/marts/_marts__models.yml)
       - name: dbt build (models, data tests, unit tests)
-        run: uv run dbt build --vars '{max_unmapped_peer_share: 0.25}'
+        run: |
+          uv run dbt build --vars '{max_unmapped_peer_share: 0.25}'
       - name: dbt source freshness
         run: uv run dbt source freshness
       - name: dbt docs
@@ -166,5 +167,6 @@ jobs:
       - name: ingest fixtures into ci_ datasets
         run: uv run proptech --no-json-logs ingest
       - run: uv run dbt deps
-      - name: dbt build (everything as views on the ci target: zero storage)
-        run: uv run dbt build --vars '{max_unmapped_peer_share: 0.25}'
+      - name: dbt build (ci target builds only views, so no storage)
+        run: |
+          uv run dbt build --vars '{max_unmapped_peer_share: 0.25}'

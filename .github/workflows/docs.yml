@@ -41,7 +41,8 @@ jobs:
       - run: uv sync
       - run: uv run proptech --no-json-logs ingest
       - run: uv run dbt deps
-      - run: uv run dbt build --vars '{max_unmapped_peer_share: 0.25}'
+      - run: |
+          uv run dbt build --vars '{max_unmapped_peer_share: 0.25}'
       - run: uv run dbt docs generate --static
       - run: mkdir -p site && cp dbt/target/static_index.html site/index.html
       - uses: actions/upload-pages-artifact@v3

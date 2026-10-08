@@ -9,6 +9,9 @@ updates:
         patterns: ["dbt-*"]
       google:
         patterns: ["google-*"]
+    ignore:
+      # dbt-bigquery constrains google-cloud-storage; bumps follow dbt-bigquery upgrades.
+      - dependency-name: google-cloud-storage
     open-pull-requests-limit: 5
 
   - package-ecosystem: github-actions
