@@ -45,7 +45,7 @@ jobs:
           uv run dbt build --vars '{max_unmapped_peer_share: 0.25}'
       - run: uv run dbt docs generate --static
       - run: mkdir -p site && cp dbt/target/static_index.html site/index.html
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: site
 
