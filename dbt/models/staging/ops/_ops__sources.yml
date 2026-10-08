@@ -1,0 +1,21 @@
+version: 2
+
+sources:
+  - name: ops
+    description: Pipeline operational tables written by `proptech ingest`.
+    schema: "{{ env_var('PROPTECH_BQ_DATASET_PREFIX', '') }}ops"
+    tables:
+      - name: ingestion_manifest
+        description: One row per source object per ingestion run (append-only).
+        config:
+          loaded_at_field: loaded_at
+          freshness:
+            # Zillow publishes mid-month and the pipeline runs monthly, so >35 days
+            # without a successful load means a run was missed; >45 days is an incident.
+            warn_after: {count: 35, period: day}
+            error_after: {count: 45, period: day}
+            filter: "status = 'loaded'"
+      - name: storage_ledger
+        description: Estimated logical bytes written per run (sandbox quota guardrail).
+      - name: rejected_values
+        description: Source values quarantined by load-time range checks.

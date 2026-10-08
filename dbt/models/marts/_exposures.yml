@@ -1,0 +1,19 @@
+version: 2
+
+exposures:
+  - name: housing_market_dashboard
+    label: US Housing Market Dashboard (Looker Studio)
+    type: dashboard
+    maturity: medium
+    description: >
+      Looker Studio report on the BigQuery marts: metro momentum league table, affordability
+      trend, price-to-rent map and market-condition mix. Looker Studio connects to BigQuery
+      sandbox projects at no cost. Setup steps are in docs/runbook.md.
+    depends_on:
+      - ref('mart_metro_momentum_rankings')
+      - ref('mart_metro_latest_snapshot')
+      - ref('fct_affordability_monthly')
+      - ref('fct_price_to_rent_monthly')
+      - ref('dim_region')
+    owner:
+      name: rohit91jacob

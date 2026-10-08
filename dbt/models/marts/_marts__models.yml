@@ -1,0 +1,319 @@
+version: 2
+
+# Contract column types use Jinja so one definition validates on BigQuery and DuckDB:
+# 'string', 'bigint', 'date' and 'boolean' are valid in both; 8-byte floats are not.
+
+models:
+  - name: dim_region
+    description: >
+      Conformed geography dimension: every Zillow region (country, state, metro, county, and
+      city/ZIP in the extended profile) with state codes, FIPS and, for metros, the most recent
+      Census CBSA mapping.
+    config:
+      contract: {enforced: true}
+    columns:
+      - name: region_id
+        data_type: bigint
+        description: Zillow RegionID; primary key.
+        constraints: [{type: not_null}]
+        data_tests: [unique, not_null]
+      - name: geo_level
+        data_type: string
+        description: country | state | metro | county | city | zip
+        data_tests: [not_null]
+      - name: region_name
+        data_type: string
+        description: Zillow region name ("New York, NY", "Cook County", "California", ZIP code).
+      - name: size_rank
+        data_type: bigint
+        description: Zillow population-based rank within the geography level (0 = largest).
+      - name: state_code
+        data_type: string
+        description: Two-letter state code; null for the national row.
+      - name: state_fips
+        data_type: string
+        description: Two-digit state FIPS code.
+      - name: county_geoid
+        data_type: string
+        description: Five-digit county FIPS code (counties only).
+      - name: metro_title
+        data_type: string
+        description: CBSA title Zillow attaches to county/city/ZIP rows.
+      - name: city
+        data_type: string
+      - name: county_name
+        data_type: string
+      - name: cbsa_code
+        data_type: string
+        description: Census CBSA code from the most recent ACS vintage with a mapping (metros only).
+      - name: cbsa_title
+        data_type: string
+      - name: metro_micro
+        data_type: string
+        description: metro | micro statistical area.
+      - name: cbsa_acs_year
+        data_type: bigint
+        description: ACS vintage the CBSA mapping comes from.
+      - name: cbsa_match_method
+        data_type: string
+        description: override (seed) | name_match | null when unmapped.
+      - name: dataset_count
+        data_type: bigint
+        description: Number of loaded Zillow files that contain the region.
+
+  - name: dim_zillow_dataset
+    description: One row per Zillow source file in the catalog, with unit and segment attributes.
+    columns:
+      - name: dataset_key
+        data_tests: [unique, not_null]
+
+  - name: fct_home_values_monthly
+    description: >
+      Zillow Home Value Index for every tier, property type, bedroom count and geography, with
+      growth and drawdown metrics. Look-backs are exact month offsets: a missing month yields
+      NULL rather than a comparison with the wrong month. View on the sandbox target.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments: {combination_of_columns: [dataset_key, region_id, month_end]}
+      - dbt_utils.expression_is_true:
+          arguments: {expression: "drawdown_from_peak_pct <= 0.000001"}
+    columns:
+      - name: dataset_key
+        description: ZHVI series key (see dim_zillow_dataset).
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_zillow_dataset'), field: dataset_key}
+      - name: region_id
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_region'), field: region_id}
+      - name: month_end
+        data_tests: [not_null, is_month_end]
+      - name: home_value
+        description: Typical home value, USD.
+        data_tests: [not_null]
+      - name: mom_pct
+        description: Percent change vs the previous month.
+      - name: yoy_pct
+        description: Percent change vs the same month a year earlier.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments: {min_value: -60, max_value: 200}
+              config: {severity: warn}
+      - name: cagr_5y_pct
+        description: Compound annual growth over 5 years, percent.
+      - name: cagr_10y_pct
+        description: Compound annual growth over 10 years, percent.
+      - name: running_peak_value
+        description: Highest value of the series up to and including this month.
+      - name: drawdown_from_peak_pct
+        description: Percent below the running peak (0 at an all-time high, never positive).
+      - name: is_all_time_high
+        description: True when the value equals the running peak.
+
+  - name: fct_rents_monthly
+    description: Zillow Observed Rent Index with growth metrics. View on the sandbox target.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments: {combination_of_columns: [dataset_key, region_id, month_end]}
+    columns:
+      - name: monthly_rent
+        description: Typical observed market rent, USD per month.
+        data_tests: [not_null]
+      - name: yoy_pct
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments: {min_value: -50, max_value: 100}
+              config: {severity: warn}
+
+  - name: fct_price_to_rent_monthly
+    description: >
+      Price-to-rent ratio (ZHVI / annual ZORI) and gross rental yield for the US, metros and
+      counties where Zillow publishes both series.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments: {combination_of_columns: [region_id, month_end]}
+    columns:
+      - name: price_to_rent_ratio
+        description: Typical home value divided by 12 months of typical rent.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 2, max_value: 150}
+              config: {severity: warn}
+      - name: gross_rental_yield_pct
+        description: Annual rent as a percent of home value (before costs and vacancy).
+
+  - name: fct_affordability_monthly
+    description: >
+      Monthly cost of buying the typical home with 20% down at the average 30-year PMMS rate,
+      relative to ACS median household income, plus rent burden and Zillow's published
+      payment and affordability ratio as cross-checks. Covers the US, states, metros and
+      counties from 2012. Income comes from the latest ACS year at or before the month.
+    config:
+      contract: {enforced: true}
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments: {combination_of_columns: [region_id, month_end]}
+    columns:
+      - name: region_id
+        data_type: bigint
+        constraints: [{type: not_null}]
+      - name: geo_level
+        data_type: string
+      - name: month_end
+        data_type: date
+        constraints: [{type: not_null}]
+      - name: home_value
+        data_type: "{{ 'float64' if target.type == 'bigquery' else 'double' }}"
+        description: Typical home value (mid-tier ZHVI, all homes), USD.
+      - name: rate_30y_pct
+        data_type: "{{ 'float64' if target.type == 'bigquery' else 'double' }}"
+        description: Month's average 30-year fixed PMMS rate, percent.
+      - name: down_payment_share
+        data_type: "{{ 'float64' if target.type == 'bigquery' else 'double' }}"
+      - name: loan_amount
+        data_type: "{{ 'float64' if target.type == 'bigquery' else 'double' }}"
+      - name: monthly_principal_interest
+        data_type: "{{ 'float64' if target.type == 'bigquery' else 'double' }}"
+        description: Fixed-rate principal and interest payment, USD per month.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 0, inclusive: false}
+      - name: income_acs_year
+        data_type: bigint
+        description: ACS survey year of the income used (may lag the month by up to two years).
+      - name: median_household_income
+        data_type: "{{ 'float64' if target.type == 'bigquery' else 'double' }}"
+        description: ACS 1-year median household income, USD (null where the ACS 1-year doesn't cover the area).
+      - name: payment_to_income_pct
+        data_type: "{{ 'float64' if target.type == 'bigquery' else 'double' }}"
+        description: Annual principal and interest as a percent of median household income.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 1, max_value: 300}
+              config: {severity: warn}
+      - name: monthly_rent
+        data_type: "{{ 'float64' if target.type == 'bigquery' else 'double' }}"
+      - name: rent_to_income_pct
+        data_type: "{{ 'float64' if target.type == 'bigquery' else 'double' }}"
+        description: Annual typical rent as a percent of median household income.
+      - name: zillow_total_monthly_payment
+        data_type: "{{ 'float64' if target.type == 'bigquery' else 'double' }}"
+        description: Zillow's typical total monthly payment (includes taxes and insurance). US and metros only.
+      - name: zillow_payment_to_income_pct
+        data_type: "{{ 'float64' if target.type == 'bigquery' else 'double' }}"
+        description: Zillow's homeowner affordability ratio, as a percent.
+      - name: zillow_implied_household_income
+        data_type: "{{ 'float64' if target.type == 'bigquery' else 'double' }}"
+        description: Income implied by Zillow's payment and ratio (their nowcast of median income).
+
+  - name: fct_market_heat_monthly
+    description: >
+      For-sale market conditions per metro and the US: Zillow Market Heat Index, inventory,
+      listings, pending sales, list/sale prices, sale-to-list, price cuts, days to pending,
+      new construction, months of supply, plus a market_condition label using Zillow's
+      thresholds (>=70 strong sellers, 55-69 sellers, 45-54 neutral, 29-44 buyers, <=28 strong buyers).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments: {combination_of_columns: [region_id, month_end]}
+    columns:
+      - name: market_condition
+        data_tests:
+          - accepted_values:
+              arguments: {values: [strong_sellers, sellers, neutral, buyers, strong_buyers]}
+      - name: share_sold_above_list
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 0, max_value: 1}
+
+  - name: mart_metro_latest_snapshot
+    description: Latest reading of every headline metric per metro and the US, each with its own as-of month.
+    columns:
+      - name: region_id
+        data_tests: [unique, not_null]
+      - name: home_value
+        data_tests: [not_null]
+
+  - name: mart_metro_momentum_rankings
+    description: >
+      The largest metros (var momentum_peer_metros) ranked by a composite momentum score:
+      the mean of peer z-scores for home-value YoY, rent YoY and market heat (higher = hotter)
+      and days to pending, price-cut share and inventory YoY (lower = hotter).
+    config:
+      contract: {enforced: true}
+    data_tests:
+      - share_at_most:
+          # CI's synthetic fixtures deliberately include one unmappable metro out of five,
+          # so the fixture run passes --vars '{max_unmapped_peer_share: 0.25}'.
+          arguments: {condition: "cbsa_code is null", max_share: "{{ var('max_unmapped_peer_share', 0.05) }}"}
+          config: {severity: error}
+      - dbt_utils.expression_is_true:
+          arguments: {expression: "momentum_rank >= 1"}
+    columns:
+      - name: region_id
+        data_type: bigint
+        constraints: [{type: not_null}]
+        data_tests: [unique, not_null]
+      - name: region_name
+        data_type: string
+      - name: size_rank
+        data_type: bigint
+      - name: state_code
+        data_type: string
+      - name: cbsa_code
+        data_type: string
+        description: Census CBSA code; the coverage test fails if more than 5% of peers are unmapped.
+      - name: home_value_as_of
+        data_type: date
+      - name: home_value
+        data_type: "{{ 'float64' if target.type == 'bigquery' else 'double' }}"
+      - name: home_value_yoy_pct
+        data_type: "{{ 'float64' if target.type == 'bigquery' else 'double' }}"
+      - name: rent_yoy_pct
+        data_type: "{{ 'float64' if target.type == 'bigquery' else 'double' }}"
+      - name: market_heat_index
+        data_type: "{{ 'float64' if target.type == 'bigquery' else 'double' }}"
+      - name: market_condition
+        data_type: string
+      - name: median_days_to_pending
+        data_type: "{{ 'float64' if target.type == 'bigquery' else 'double' }}"
+      - name: share_listings_price_cut
+        data_type: "{{ 'float64' if target.type == 'bigquery' else 'double' }}"
+      - name: for_sale_inventory_yoy_pct
+        data_type: "{{ 'float64' if target.type == 'bigquery' else 'double' }}"
+      - name: payment_to_income_pct
+        data_type: "{{ 'float64' if target.type == 'bigquery' else 'double' }}"
+      - name: z_home_value_yoy
+        data_type: "{{ 'float64' if target.type == 'bigquery' else 'double' }}"
+      - name: z_rent_yoy
+        data_type: "{{ 'float64' if target.type == 'bigquery' else 'double' }}"
+      - name: z_market_heat
+        data_type: "{{ 'float64' if target.type == 'bigquery' else 'double' }}"
+      - name: z_days_to_pending
+        data_type: "{{ 'float64' if target.type == 'bigquery' else 'double' }}"
+      - name: z_price_cuts
+        data_type: "{{ 'float64' if target.type == 'bigquery' else 'double' }}"
+      - name: z_inventory_yoy
+        data_type: "{{ 'float64' if target.type == 'bigquery' else 'double' }}"
+      - name: momentum_score
+        data_type: "{{ 'float64' if target.type == 'bigquery' else 'double' }}"
+        description: Mean of the available signed z-scores.
+      - name: momentum_rank
+        data_type: bigint
+        description: 1 = strongest momentum.
+        data_tests: [unique, not_null]
+
+  - name: fct_forecast_accuracy
+    description: >
+      Every archived Zillow Home Value Forecast vintage scored against the realised ZHVI change,
+      using the current ZHVI vintage. Rows become realised once the horizon month is published,
+      so the table fills in as monthly runs accumulate forecast history.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments: {combination_of_columns: [dataset_key, region_id, base_date, horizon_months]}
+    columns:
+      - name: error_pp
+        description: Forecast minus realised growth, percentage points.
+      - name: is_realized
+        data_tests: [not_null]

@@ -1,0 +1,49 @@
+version: 2
+
+models:
+  - name: int_mortgage_rates_monthly
+    description: Monthly average of the weekly 30- and 15-year PMMS rates.
+    columns:
+      - name: month_end
+        data_tests: [unique, not_null, is_month_end]
+      - name: rate_30y_pct
+        data_tests: [not_null]
+      - name: survey_weeks
+        description: Number of weekly surveys averaged (4 or 5 in a complete month).
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 1, max_value: 5}
+
+  - name: int_regions_conformed
+    description: Zillow regions with conformed state code, state FIPS and county GEOID.
+    columns:
+      - name: region_id
+        data_tests: [unique, not_null]
+      - name: state_fips
+        description: Two-digit state FIPS; null only for the national row.
+      - name: county_geoid
+        description: Five-digit county FIPS for county regions.
+
+  - name: int_metro_cbsa_crosswalk
+    description: >
+      Zillow metro to Census CBSA mapping per ACS vintage. Overrides from the
+      metro_cbsa_overrides seed win; otherwise the best-ranked name candidate; ties are unmapped.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments: {combination_of_columns: [region_id, acs_year]}
+    columns:
+      - name: cbsa_code
+        data_tests: [not_null]
+      - name: match_method
+        data_tests:
+          - accepted_values:
+              arguments: {values: [override, name_match]}
+
+  - name: int_household_income_by_region
+    description: ACS median household income per Zillow region (country/state/county/metro) and ACS year.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments: {combination_of_columns: [region_id, acs_year]}
+
+  - name: int_zillow_series
+    description: Zillow observations joined to dataset metadata and the region's geography level.

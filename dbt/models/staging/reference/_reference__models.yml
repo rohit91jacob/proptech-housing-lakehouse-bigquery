@@ -1,0 +1,41 @@
+version: 2
+
+models:
+  - name: stg_freddie_mac__pmms_weekly
+    description: Weekly Freddie Mac PMMS mortgage rates.
+    columns:
+      - name: week_date
+        data_tests: [unique, not_null]
+      - name: rate_30y_pct
+        description: 30-year fixed rate, percent.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 0, max_value: 25, inclusive: false}
+    data_tests:
+      - dbt_utils.recency:
+          arguments: {datepart: day, field: week_date, interval: 21}
+          config: {severity: warn}
+
+  - name: stg_census__acs_household_income
+    description: ACS 1-year median household income by geography and survey year.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments: {combination_of_columns: [acs_year, geo_id]}
+    columns:
+      - name: geo_level
+        data_tests:
+          - accepted_values:
+              arguments: {values: [country, state, county, cbsa]}
+      - name: county_geoid
+        description: Five-digit county FIPS (state + county) for county rows.
+      - name: median_household_income
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 5000, max_value: 500000}
+
+  - name: stg_census__cbsa_name_candidates
+    description: Candidate Zillow-style metro names per CBSA and ACS year.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments: {combination_of_columns: [acs_year, cbsa_code, candidate_name]}

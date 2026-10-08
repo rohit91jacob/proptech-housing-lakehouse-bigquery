@@ -1,0 +1,76 @@
+version: 2
+
+# Values are chosen so every expected ratio is exact in binary floating point.
+
+unit_tests:
+  - name: home_value_growth_uses_exact_month_offsets
+    description: >
+      YoY/MoM compare exactly 12/1 months back and yield NULL across gaps (LAG would compare
+      the wrong months); drawdown is measured from the running peak.
+    model: fct_home_values_monthly
+    given:
+      - input: ref('int_zillow_series')
+        rows:
+          - {dataset_key: zhvi_metro_mid_all, family: zhvi, region_id: 1, geo_level: metro, month_end: "2024-01-31", month_idx: 24288, value: 64}
+          - {dataset_key: zhvi_metro_mid_all, family: zhvi, region_id: 1, geo_level: metro, month_end: "2024-02-29", month_idx: 24289, value: 80}
+          - {dataset_key: zhvi_metro_mid_all, family: zhvi, region_id: 1, geo_level: metro, month_end: "2024-03-31", month_idx: 24290, value: 60}
+          - {dataset_key: zhvi_metro_mid_all, family: zhvi, region_id: 1, geo_level: metro, month_end: "2025-01-31", month_idx: 24300, value: 96}
+          - {dataset_key: zhvi_metro_mid_all, family: zhvi, region_id: 1, geo_level: metro, month_end: "2025-03-31", month_idx: 24302, value: 90}
+          - {dataset_key: zhvi_metro_mid_all, family: zhvi, region_id: 2, geo_level: metro, month_end: "2025-01-31", month_idx: 24300, value: 10}
+          - {dataset_key: zori_metro_all, family: zori, region_id: 1, geo_level: metro, month_end: "2025-01-31", month_idx: 24300, value: 2000}
+    expect:
+      rows:
+        - {region_id: 1, month_end: "2024-01-31", home_value: 64, mom_pct: null, yoy_pct: null, drawdown_from_peak_pct: 0, is_all_time_high: true}
+        - {region_id: 1, month_end: "2024-02-29", home_value: 80, mom_pct: 25, yoy_pct: null, drawdown_from_peak_pct: 0, is_all_time_high: true}
+        - {region_id: 1, month_end: "2024-03-31", home_value: 60, mom_pct: -25, yoy_pct: null, drawdown_from_peak_pct: -25, is_all_time_high: false}
+        - {region_id: 1, month_end: "2025-01-31", home_value: 96, mom_pct: null, yoy_pct: 50, drawdown_from_peak_pct: 0, is_all_time_high: true}
+        - {region_id: 1, month_end: "2025-03-31", home_value: 90, mom_pct: null, yoy_pct: 50, drawdown_from_peak_pct: -6.25, is_all_time_high: false}
+        - {region_id: 2, month_end: "2025-01-31", home_value: 10, mom_pct: null, yoy_pct: null, drawdown_from_peak_pct: 0, is_all_time_high: true}
+
+  - name: affordability_picks_latest_income_vintage_at_or_before_month
+    description: >
+      Income comes from the latest ACS year <= the month's year, else the earliest later year.
+      A zero rate amortises linearly, which keeps the expected payment exact.
+    model: fct_affordability_monthly
+    overrides:
+      vars: {down_payment_share: 0.2, mortgage_term_months: 360, affordability_start_month: "2012-01-31"}
+    given:
+      - input: ref('int_zillow_series')
+        rows:
+          - {dataset_key: zhvi_metro_mid_all, region_id: 1, geo_level: metro, month_end: "2024-06-30", value: 450000}
+          - {dataset_key: zhvi_metro_mid_all, region_id: 1, geo_level: metro, month_end: "2026-06-30", value: 450000}
+          - {dataset_key: zhvi_metro_mid_all, region_id: 2, geo_level: metro, month_end: "2024-06-30", value: 450000}
+          - {dataset_key: zori_metro_all, region_id: 1, geo_level: metro, month_end: "2024-06-30", value: 2500}
+      - input: ref('int_mortgage_rates_monthly')
+        rows:
+          - {month_end: "2024-06-30", rate_30y_pct: 0}
+          - {month_end: "2026-06-30", rate_30y_pct: 0}
+      - input: ref('int_household_income_by_region')
+        rows:
+          - {region_id: 1, acs_year: 2023, median_household_income: 60000}
+          - {region_id: 1, acs_year: 2024, median_household_income: 120000}
+          - {region_id: 2, acs_year: 2025, median_household_income: 48000}
+    expect:
+      rows:
+        - {region_id: 1, month_end: "2024-06-30", loan_amount: 360000, monthly_principal_interest: 1000, income_acs_year: 2024, median_household_income: 120000, payment_to_income_pct: 10, rent_to_income_pct: 25}
+        - {region_id: 1, month_end: "2026-06-30", loan_amount: 360000, monthly_principal_interest: 1000, income_acs_year: 2024, median_household_income: 120000, payment_to_income_pct: 10, rent_to_income_pct: null}
+        - {region_id: 2, month_end: "2024-06-30", loan_amount: 360000, monthly_principal_interest: 1000, income_acs_year: 2025, median_household_income: 48000, payment_to_income_pct: 25, rent_to_income_pct: null}
+
+  - name: forecast_accuracy_scores_realised_horizons_only
+    model: fct_forecast_accuracy
+    given:
+      - input: ref('stg_zillow__forecast_history')
+        rows:
+          - {dataset_key: zhvf_metro_mid_all, region_id: 1, base_date: "2025-12-31", horizon_date: "2026-01-31", horizon_months: 1, forecast_growth_pct: 20}
+          - {dataset_key: zhvf_metro_mid_all, region_id: 1, base_date: "2025-12-31", horizon_date: "2026-03-31", horizon_months: 3, forecast_growth_pct: 50}
+          - {dataset_key: zhvf_metro_mid_all, region_id: 1, base_date: "2025-12-31", horizon_date: "2026-12-31", horizon_months: 12, forecast_growth_pct: 60}
+      - input: ref('stg_zillow__observations')
+        rows:
+          - {dataset_key: zhvi_metro_mid_all, region_id: 1, month_end: "2025-12-31", value: 64}
+          - {dataset_key: zhvi_metro_mid_all, region_id: 1, month_end: "2026-01-31", value: 80}
+          - {dataset_key: zhvi_metro_mid_all, region_id: 1, month_end: "2026-03-31", value: 96}
+    expect:
+      rows:
+        - {horizon_months: 1, realised_growth_pct: 25, error_pp: -5, abs_error_pp: 5, is_realized: true}
+        - {horizon_months: 3, realised_growth_pct: 50, error_pp: 0, abs_error_pp: 0, is_realized: true}
+        - {horizon_months: 12, realised_growth_pct: null, error_pp: null, abs_error_pp: null, is_realized: false}

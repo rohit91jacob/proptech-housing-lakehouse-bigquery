@@ -1,0 +1,72 @@
+version: 2
+
+models:
+  - name: stg_zillow__observations
+    description: >
+      All loaded Zillow monthly time series in long form, one row per dataset, region and
+      month. `month_idx` (year * 12 + month - 1) supports exact-offset RANGE windows.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments: {combination_of_columns: [dataset_key, region_id, month_end]}
+      - dbt_utils.recency:
+          arguments: {datepart: day, field: month_end, interval: 100}
+          config: {severity: warn}
+    columns:
+      - name: dataset_key
+        description: Catalog key (config/datasets.yml).
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('zillow_datasets'), field: dataset_key}
+      - name: region_id
+        description: Zillow RegionID.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('stg_zillow__regions'), field: region_id}
+      - name: month_end
+        description: Month-end date of the observation.
+        data_tests: [not_null, is_month_end]
+      - name: month_idx
+        description: year * 12 + month - 1.
+        data_tests: [not_null]
+      - name: value
+        description: Observed value in the dataset's unit.
+        data_tests: [not_null]
+
+  - name: stg_zillow__regions
+    description: One row per Zillow region with metadata coalesced across every loaded file.
+    columns:
+      - name: region_id
+        data_tests: [unique, not_null]
+      - name: geo_level
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments: {values: [country, state, metro, county, city, zip, neighborhood]}
+      - name: region_name
+        data_tests: [not_null]
+      - name: dataset_count
+        description: Number of loaded files the region appears in.
+
+  - name: stg_zillow__forecasts
+    description: Latest Zillow Home Value Forecast vintage (percent growth from base_date).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments: {combination_of_columns: [dataset_key, region_id, base_date, horizon_months]}
+    columns:
+      - name: horizon_months
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 1, max_value: 24}
+      - name: base_date
+        data_tests: [not_null, is_month_end]
+      - name: horizon_date
+        data_tests: [not_null, is_month_end]
+
+  - name: stg_zillow__forecast_history
+    description: Every forecast vintage loaded so far; the basis for forecast-accuracy tracking.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments: {combination_of_columns: [dataset_key, region_id, base_date, horizon_months]}

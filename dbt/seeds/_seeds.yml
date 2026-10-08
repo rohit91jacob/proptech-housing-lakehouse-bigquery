@@ -1,0 +1,44 @@
+version: 2
+
+seeds:
+  - name: state_codes
+    description: US states, DC and Puerto Rico with USPS codes and FIPS codes.
+    columns:
+      - name: state_name
+        data_tests: [unique, not_null]
+      - name: state_code
+        description: Two-letter USPS code.
+        data_tests: [unique, not_null]
+      - name: state_fips
+        description: Two-digit FIPS code (string, zero-padded).
+        data_tests: [unique, not_null]
+
+  - name: metro_cbsa_overrides
+    description: >
+      Manual Zillow metro -> Census CBSA mappings for an ACS vintage, applied before the
+      name-matching heuristic in int_metro_cbsa_crosswalk. Add a row when the coverage test
+      on mart_metro_momentum_rankings reports an unmapped peer metro.
+    columns:
+      - name: region_id
+        description: Zillow metro RegionID.
+        data_tests: [not_null]
+      - name: acs_year
+        data_tests: [not_null]
+      - name: cbsa_code
+        data_tests: [not_null]
+      - name: reason
+        description: Why the heuristic can't find this mapping.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments: {combination_of_columns: [region_id, acs_year]}
+
+  - name: zillow_datasets
+    description: Generated from config/datasets.yml by `proptech dbt-sources`. One row per source file.
+    columns:
+      - name: dataset_key
+        data_tests: [unique, not_null]
+      - name: kind
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [timeseries, forecast]

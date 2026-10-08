@@ -1,0 +1,66 @@
+name: proptech
+version: "1.0.0"
+config-version: 2
+require-dbt-version: [">=1.10.0", "<2.0.0"]
+profile: proptech
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+analysis-paths: ["analyses"]
+target-path: "target"
+clean-targets: ["target", "dbt_packages", "logs"]
+
+flags:
+  require_explicit_package_overrides_for_builtin_materializations: true
+  send_anonymous_usage_stats: false
+
+vars:
+  # Which catalog profile was loaded (core | extended); staging only unions loaded tables.
+  zillow_profile: "{{ env_var('PROPTECH_PROFILE', 'core') }}"
+  # Affordability assumptions (Zillow's own affordability series also assume 20% down).
+  down_payment_share: 0.20
+  mortgage_term_months: 360
+  # Peer group for the momentum rankings.
+  momentum_peer_metros: 100
+  # First month of the affordability mart (PMMS and Zillow affordability coverage).
+  affordability_start_month: "2012-01-31"
+
+models:
+  proptech:
+    +persist_docs:
+      relation: true
+      columns: true
+    +labels:
+      pipeline: proptech
+    staging:
+      +schema: staging
+      +materialized: view
+    intermediate:
+      +schema: intermediate
+      +materialized: view
+    marts:
+      +schema: marts
+      +materialized: table
+
+seeds:
+  proptech:
+    +schema: seeds
+    +quote_columns: false
+    # 'string' and 'bigint' are valid type names in both BigQuery and DuckDB.
+    state_codes:
+      +column_types: {state_name: string, state_code: string, state_fips: string}
+    metro_cbsa_overrides:
+      +column_types: {region_id: bigint, acs_year: bigint, cbsa_code: string, reason: string}
+    zillow_datasets:
+      +column_types:
+        {dataset_key: string, tier: string, property_type: string, bedrooms: bigint, profiles: string}
+
+data_tests:
+  proptech:
+    +store_failures: false # store_failures writes tables, which the sandbox storage quota can't afford
+
+unit_tests:
+  proptech:
+    +enabled: true

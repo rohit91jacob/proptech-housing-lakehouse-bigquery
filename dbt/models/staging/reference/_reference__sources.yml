@@ -1,0 +1,45 @@
+version: 2
+
+sources:
+  - name: reference
+    description: Non-Zillow reference data loaded by `proptech ingest`.
+    schema: "{{ env_var('PROPTECH_BQ_DATASET_PREFIX', '') }}raw_reference"
+    tables:
+      - name: pmms_weekly
+        description: >
+          Freddie Mac Primary Mortgage Market Survey (PMMS) weekly average rates
+          (https://www.freddiemac.com/pmms). Released Thursdays.
+        columns:
+          - name: week_date
+            description: Survey week (Thursday).
+          - name: rate_30y
+            description: 30-year fixed-rate mortgage average, percent.
+          - name: points_30y
+            description: Average fees and points on the 30-year loan.
+          - name: rate_15y
+            description: 15-year fixed-rate mortgage average, percent.
+      - name: acs_median_household_income
+        description: >
+          U.S. Census Bureau American Community Survey 1-year estimates, table B19013
+          (median household income in the past 12 months, inflation-adjusted to the survey year).
+          Country, state, county and CBSA rows from the table-based summary file.
+        columns:
+          - name: acs_year
+          - name: geo_id
+          - name: summary_level
+          - name: geo_level
+          - name: geo_name
+          - name: state_fips
+          - name: county_fips
+          - name: cbsa_code
+          - name: median_household_income
+          - name: margin_of_error
+      - name: cbsa_name_candidates
+        description: '"City, ST" strings derived from each CBSA title, used to match Zillow metro names.'
+        columns:
+          - name: acs_year
+          - name: cbsa_code
+          - name: cbsa_title
+          - name: metro_micro
+          - name: candidate_name
+          - name: candidate_rank

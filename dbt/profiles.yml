@@ -1,0 +1,45 @@
+# All connection details come from the environment, so this file is safe to commit.
+# Targets:
+#   local    DuckDB file written by `proptech ingest` (PROPTECH_TARGET=duckdb). Dev + CI.
+#   sandbox  BigQuery sandbox (no billing): heavy marts as views, snapshots as tables.
+#   ci       BigQuery, everything as views under a prefixed dataset: zero storage cost.
+#   prod     Billing-enabled BigQuery: every mart is a partitioned/clustered table.
+#   offline  BigQuery dialect compile without credentials (CI); see below.
+# BigQuery auth uses Application Default Credentials (GOOGLE_APPLICATION_CREDENTIALS or
+# Workload Identity Federation via google-github-actions/auth).
+proptech:
+  target: "{{ env_var('DBT_TARGET', 'local') }}"
+  outputs:
+    local:
+      type: duckdb
+      path: "{{ env_var('PROPTECH_DUCKDB_PATH', 'data/warehouse/proptech.duckdb') }}"
+      schema: main
+      threads: 4
+
+    sandbox: &bigquery
+      type: bigquery
+      method: oauth
+      project: "{{ env_var('PROPTECH_BQ_PROJECT', 'set-PROPTECH_BQ_PROJECT') }}"
+      dataset: "{{ env_var('PROPTECH_BQ_DATASET_PREFIX', '') }}marts"
+      location: "{{ env_var('PROPTECH_BQ_LOCATION', 'US') }}"
+      threads: 4
+      priority: interactive
+      job_execution_timeout_seconds: 900
+      job_retries: 2
+      maximum_bytes_billed: "{{ env_var('PROPTECH_MAX_BYTES_BILLED', '50000000000') | as_number }}"
+
+    ci: *bigquery
+
+    prod: *bigquery
+
+    # Compiles BigQuery SQL with no GCP access (CI syntax checks). The token is never used
+    # because `dbt compile --no-populate-cache` runs no queries; pass --vars "{deployment: prod}"
+    # (or sandbox/ci) to choose which deployment's SQL is generated.
+    offline:
+      type: bigquery
+      method: oauth-secrets
+      token: "{{ env_var('DBT_BQ_OFFLINE_TOKEN', 'offline-compile-only') }}"
+      project: offline-compile
+      dataset: marts
+      location: US
+      threads: 4

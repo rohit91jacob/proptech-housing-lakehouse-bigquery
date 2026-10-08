@@ -1,0 +1,45 @@
+version: 2
+
+unit_tests:
+  - name: mortgage_rates_average_weekly_surveys_per_month
+    model: int_mortgage_rates_monthly
+    given:
+      - input: ref('stg_freddie_mac__pmms_weekly')
+        rows:
+          - {week_date: "2026-01-01", rate_30y_pct: 6.0, rate_15y_pct: 5.0}
+          - {week_date: "2026-01-08", rate_30y_pct: 6.5, rate_15y_pct: 5.5}
+          - {week_date: "2026-01-15", rate_30y_pct: 7.0, rate_15y_pct: 6.0}
+          - {week_date: "2026-01-22", rate_30y_pct: 6.5, rate_15y_pct: 5.5}
+          - {week_date: "2026-02-05", rate_30y_pct: 7.25, rate_15y_pct: 6.25}
+    expect:
+      rows:
+        - {month_end: "2026-01-31", rate_30y_pct: 6.5, rate_15y_pct: 5.5, survey_weeks: 4}
+        - {month_end: "2026-02-28", rate_30y_pct: 7.25, rate_15y_pct: 6.25, survey_weeks: 1}
+
+  - name: cbsa_crosswalk_prefers_overrides_then_best_rank_and_drops_ties
+    model: int_metro_cbsa_crosswalk
+    given:
+      - input: ref('int_regions_conformed')
+        rows:
+          - {region_id: 1, geo_level: metro, region_name: "Alpha, TX"}
+          - {region_id: 2, geo_level: metro, region_name: "Beta-Gamma, CA"}
+          - {region_id: 3, geo_level: metro, region_name: "Delta, NY"}
+          - {region_id: 4, geo_level: metro, region_name: "Epsilon, FL"}
+          - {region_id: 5, geo_level: county, region_name: "Alpha, TX"}
+      - input: ref('stg_census__cbsa_name_candidates')
+        rows:
+          - {acs_year: 2024, cbsa_code: "10001", cbsa_title: "Alpha-Omega, TX", metro_micro: metro, candidate_name: "Alpha, TX", candidate_rank: 1}
+          - {acs_year: 2024, cbsa_code: "10001", cbsa_title: "Alpha-Omega, TX", metro_micro: metro, candidate_name: "Omega, TX", candidate_rank: 101}
+          - {acs_year: 2024, cbsa_code: "10009", cbsa_title: "Zeta-Alpha, TX", metro_micro: metro, candidate_name: "Alpha, TX", candidate_rank: 101}
+          - {acs_year: 2024, cbsa_code: "10002", cbsa_title: "Beta-Gamma, CA", metro_micro: metro, candidate_name: "Beta, CA", candidate_rank: 1}
+          - {acs_year: 2024, cbsa_code: "10002", cbsa_title: "Beta-Gamma, CA", metro_micro: metro, candidate_name: "Beta-Gamma, CA", candidate_rank: 2}
+          - {acs_year: 2024, cbsa_code: "10003", cbsa_title: "Delta, NY", metro_micro: metro, candidate_name: "Delta, NY", candidate_rank: 1}
+          - {acs_year: 2024, cbsa_code: "10004", cbsa_title: "Delta, NY", metro_micro: micro, candidate_name: "Delta, NY", candidate_rank: 1}
+      - input: ref('metro_cbsa_overrides')
+        rows:
+          - {region_id: 4, acs_year: 2024, cbsa_code: "10005", reason: "renamed CBSA"}
+    expect:
+      rows:
+        - {region_id: 1, acs_year: 2024, cbsa_code: "10001", match_method: name_match}
+        - {region_id: 2, acs_year: 2024, cbsa_code: "10002", match_method: name_match}
+        - {region_id: 4, acs_year: 2024, cbsa_code: "10005", match_method: override}
