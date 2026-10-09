@@ -52,7 +52,7 @@ jobs:
       mode: ${{ steps.auth.outputs.mode }}
       project: ${{ steps.auth.outputs.project }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: auth
         name: choose the auth method (WIF > key > none)
         env:
@@ -102,7 +102,7 @@ jobs:
       PROPTECH_RAW_ARCHIVE_URI: ${{ vars.RAW_ARCHIVE_URI || format('{0}/data/archive', github.workspace) }}
       DBT_TARGET: ${{ inputs.deployment || 'sandbox' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
