@@ -60,7 +60,8 @@ flowchart LR
 | `config/datasets.yml` | Catalog of 41 Zillow files (36 in the `core` profile). It is the single source of truth for ingestion, validation thresholds and the generated dbt sources. |
 | `src/proptech` | Python loader with resilient downloads, wide-to-long parsing, load-time validation and quarantine, vintage archive, manifest, storage ledger, and BigQuery/DuckDB backends. Its CLI is `proptech`. |
 | `dbt/` | Staging → intermediate → marts. Data tests, unit tests, contracts, source freshness and an exposure. |
-| `.github/workflows/pipeline.yml` | Production orchestrator: a monthly schedule plus manual runs. Authenticates with Workload Identity Federation and opens an issue when a run fails. |
+| `.github/workflows/pipeline.yml` | Production orchestrator: a monthly schedule plus manual runs. It picks keyless Workload Identity Federation when configured and falls back to the `GCP_SA_KEY` secret. A credential health check runs before any load, and failures open an issue that names the credential to fix. |
+| `.github/workflows/keepalive.yml` | Re-enables the scheduled workflows via the API on the 1st and 15th, so GitHub's 60-day inactivity rule never switches the monthly refresh off. |
 | `.github/workflows/ci.yml` | Lint and offline BigQuery SQL compile/parse, pytest, an end-to-end DuckDB run on fixtures, and BigQuery CI when credentials exist. |
 | `.github/workflows/docs.yml` | dbt docs published to GitHub Pages. It is opt-in. |
 
@@ -175,7 +176,8 @@ uv run proptech budget
 ### 4. Orchestrated runs
 
 After configuring the repository variables and secrets in [docs/gcp_setup.md](docs/gcp_setup.md),
-the `pipeline` workflow runs on the 18th of every month. It can also be started from
+the `pipeline` workflow runs on the 18th of every month. It refreshes BigQuery with that month's
+Zillow vintage with no manual step. It can also be started from
 **Actions → pipeline → Run workflow** with the inputs `deployment` (sandbox | prod),
 `profile` (core | extended), `force`, and `only` (a list of dataset keys).
 
@@ -229,6 +231,23 @@ private-key detection, and the dbt-sources drift check.
 
 - **Scheduling:** the `pipeline` workflow runs monthly on the 18th, cron `0 9 18 * *`.
   Concurrency is serialised and in-flight runs are never cancelled.
+- **Staying scheduled:** GitHub disables scheduled workflows in public repos after 60 days
+  without repository activity. The `keepalive` workflow re-enables `pipeline` (and itself)
+  through the API twice a month, without commits.
+- **Authentication:** see the table below.
+
+  | Method | Configured by | Expires | Selected when |
+  |---|---|---|---|
+  | Workload Identity Federation (keyless, recommended) | variables `GCP_WORKLOAD_IDENTITY_PROVIDER` + `GCP_SERVICE_ACCOUNT` | never: GitHub mints a short-lived OIDC token each run | both variables are set |
+  | Service-account JSON key | secret `GCP_SA_KEY` | never by default; rotate it yearly | WIF is not configured |
+
+  `GCP_PROJECT_ID` is set to `proptech-housing`. Without it the project comes from the key or the
+  service-account email. The selection logic is `src/proptech/ci_auth.py`, and it is unit-tested.
+- **Credential health check:** `proptech healthcheck` lists one dataset and dry-runs `SELECT 1`
+  (free) before anything loads. A revoked key, missing role or disabled API fails the run and
+  opens a `Pipeline credential failure` issue that names the fix. A scheduled run with no
+  credential at all opens `Pipeline credentials missing`. GitHub also emails the repo owner
+  about failed scheduled runs.
 - **Idempotency:** conditional GETs and sha256 skip unchanged files. Each load is a single
   atomic job. Re-running a month gives identical marts: on the real data, every mart's
   row-count and row-hash fingerprint was identical before and after a rerun.
@@ -251,7 +270,7 @@ Procedures are in [docs/runbook.md](docs/runbook.md), and GCP setup is in
 .
 ├── config/datasets.yml          # catalog: 41 Zillow files, profiles, validation thresholds
 ├── src/proptech/
-│   ├── cli.py                   # `proptech ingest | catalog | dbt-sources | budget | fixtures`
+│   ├── cli.py                   # `proptech ingest | catalog | dbt-sources | budget | healthcheck | fixtures`
 │   ├── pipeline.py              # fetch -> validate -> quarantine -> archive -> load -> manifest
 │   ├── http.py                  # retries/backoff, ETag conditional GET, sha256, file:// support
 │   ├── zillow.py / reference.py # wide->long Zillow parser; PMMS, ACS and CBSA-name parsing
@@ -260,6 +279,8 @@ Procedures are in [docs/runbook.md](docs/runbook.md), and GCP setup is in
 │   ├── archive.py               # immutable vintage archive (local or GCS)
 │   ├── dbt_sources.py           # generates dbt sources, catalog macro and seed from the catalog
 │   ├── fixtures.py              # deterministic synthetic fixtures
+│   ├── healthcheck.py           # free BigQuery credential check with a fix-it diagnosis
+│   ├── ci_auth.py               # CI auth selection: WIF > key > none (stdlib only)
 │   └── warehouse/               # BigQuery (load jobs) and DuckDB backends
 ├── dbt/
 │   ├── models/{staging,intermediate,marts}/
@@ -269,7 +290,7 @@ Procedures are in [docs/runbook.md](docs/runbook.md), and GCP setup is in
 │   └── profiles.yml             # env-driven targets: local, sandbox, ci, prod, offline
 ├── tests/                       # pytest + synthetic fixtures under tests/fixtures/sources
 ├── docs/                        # data dictionary, runbook, GCP setup, ADRs
-├── .github/workflows/           # ci, pipeline, docs
+├── .github/workflows/           # ci, pipeline, keepalive, docs
 └── Makefile, pyproject.toml, uv.lock, .env.example, .pre-commit-config.yaml
 ```
 

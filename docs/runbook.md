@@ -20,12 +20,20 @@ Commands run from the repo root. The BigQuery commands need the credentials desc
   4. `dbt build`: models, data tests and unit tests.
   5. Record the storage dbt wrote in the ledger.
   6. Upload artifacts.
-- **On failure** the workflow opens an issue titled `Pipeline failure: <env>` with the label
-  `pipeline-failure`, or comments on the open one.
+- **Before loading,** `proptech healthcheck` verifies the credential (list one dataset plus a
+  dry run, both free).
+- **On failure** the workflow opens, or comments on, a `pipeline-failure` issue:
+  - `Pipeline credential failure (<method>)`: the health check failed. The issue includes the
+    diagnosis and the fix: renew the key, check the WIF variables, grant a role, or enable the
+    API.
+  - `Pipeline credentials missing`: a scheduled run found no credential configured.
+  - `Pipeline failure: <env>`: anything else.
 - **Run summary:** shown in the job summary, with one row per dataset (status, rows, bytes,
   warnings).
 - **Inactive repos:** GitHub disables scheduled workflows after 60 days without repository
-  activity in public repos. Re-enable it from the Actions tab, or push a commit.
+  activity in public repos. `keepalive.yml` re-enables `pipeline.yml` and itself via the API on
+  the 1st and 15th. If the workflows were disabled anyway, open Actions → pipeline →
+  **Enable workflow**, do the same for keepalive, then run keepalive once.
 
 ## Triage by symptom
 
@@ -111,9 +119,17 @@ Every table, view and partition in the sandbox expires 60 days after creation.
 
 ## Credentials
 
-- **CI:** prefer Workload Identity Federation (`vars.GCP_WORKLOAD_IDENTITY_PROVIDER` and
-  `vars.GCP_SERVICE_ACCOUNT`). The fallback is `secrets.GCP_SA_KEY`. Set one, not both.
-- **Rotating a key:** create a new key, update the secret, delete the old key in IAM.
+- **Selection:** Workload Identity Federation wins when `vars.GCP_WORKLOAD_IDENTITY_PROVIDER`
+  and `vars.GCP_SERVICE_ACCOUNT` are both set. Otherwise `secrets.GCP_SA_KEY` is used. A key
+  left behind after switching to WIF is ignored, so delete it once WIF runs green.
+- **What expires:** WIF never expires. Service-account keys don't expire by default, but an
+  org policy can impose a lifetime. A revoked or deleted key surfaces as a
+  `Pipeline credential failure` issue on the next run.
+- **Rotating a key:** IAM → Service accounts → `proptech-pipeline` → Keys → Add key (JSON).
+  Replace the `GCP_SA_KEY` secret, run the pipeline manually, then delete the old key.
+- **Switching to WIF:** follow docs/gcp_setup.md §3a. Set the two variables, run the pipeline
+  manually, check that the log says `authenticate (Workload Identity Federation, keyless)`,
+  then delete the JSON key and the `GCP_SA_KEY` secret.
 - **Locally:** `export GOOGLE_APPLICATION_CREDENTIALS=/path/key.json`. Never commit a key.
   `.gitignore` and the pre-commit `detect-private-key` hook guard against it.
 

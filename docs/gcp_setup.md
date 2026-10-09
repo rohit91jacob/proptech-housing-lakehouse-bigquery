@@ -1,11 +1,11 @@
 # Google Cloud setup
 
 > **Status.**
-> - The service-account-key path (3b) is in use: project `proptech-housing` is a sandbox with
->   no billing, and its account has BigQuery Data Editor and Job User.
-> - The Workload Identity Federation commands (3a) follow Google's documentation but haven't
->   been run for this repository.
-> - CI skips its BigQuery jobs, with a notice, until credentials exist.
+> - Live auth is the service-account key (3b). Project `proptech-housing` is a sandbox with no
+>   billing, and `proptech-pipeline@proptech-housing.iam.gserviceaccount.com` holds BigQuery
+>   Data Editor and Job User. The repository variable `GCP_PROJECT_ID=proptech-housing` is set.
+> - Workload Identity Federation (3a) is wired into the workflows but not configured yet. When
+>   its two variables exist, the workflows switch to it automatically.
 
 ## 1. Project with the BigQuery sandbox
 
@@ -34,29 +34,83 @@ done
 
 ## 3a. Keyless CI with Workload Identity Federation (recommended)
 
+GitHub issues each workflow run a short-lived OIDC token, and Google exchanges it for
+temporary credentials. No key is stored anywhere, so there is nothing to expire, leak or
+rotate. This takes about 10 minutes in the console, and needs an owner/IAM-admin login rather
+than the pipeline's service account.
+
+**Console steps** (project `proptech-housing`):
+
+1. Open **IAM & Admin → Workload Identity Federation**
+   (<https://console.cloud.google.com/iam-admin/workload-identity-pools>). If prompted, click
+   **Enable APIs**; this enables the IAM Credentials APIs.
+2. Click **Create pool**. Name: `github`, Pool ID: `github`. Click **Continue**.
+3. **Add a provider to pool:** choose provider **OpenID Connect (OIDC)**.
+   - Provider name: `github`, Provider ID: `github`.
+   - Issuer (URL): `https://token.actions.githubusercontent.com`.
+   - Audiences: **Default audience**.
+   - Click **Continue**.
+4. **Configure provider attributes:**
+   - Mapping: `google.subject` = `assertion.sub`. Click **Add mapping** and set
+     `attribute.repository` = `assertion.repository`.
+   - **Attribute conditions → Add condition:**
+     `assertion.repository == 'rohit91jacob/proptech-housing-lakehouse-bigquery'`. This
+     condition is what stops any other GitHub repository from using the pool.
+   - Click **Save**.
+5. Open the new pool and click **Grant access** (or **Connected service accounts → Grant
+   access**).
+   - Choose **Grant access using service account impersonation**.
+   - Service account: `proptech-pipeline@proptech-housing.iam.gserviceaccount.com`.
+   - Principals: attribute name `repository`, value
+     `rohit91jacob/proptech-housing-lakehouse-bigquery`.
+   - Click **Save**. If asked to configure an application, dismiss it.
+
+   This grants `roles/iam.workloadIdentityUser` on the service account to
+   `principalSet://iam.googleapis.com/projects/<number>/locations/global/workloadIdentityPools/github/attribute.repository/rohit91jacob/proptech-housing-lakehouse-bigquery`.
+6. Open the pool's **Providers** tab, click `github`, and copy the **resource name**. It looks
+   like `projects/123456789012/locations/global/workloadIdentityPools/github/providers/github`.
+   It uses the project *number*, not the ID.
+7. Send the maintainer, or set yourself under **Settings → Secrets and variables → Actions →
+   Variables**:
+
+   | Variable | Value |
+   |---|---|
+   | `GCP_WORKLOAD_IDENTITY_PROVIDER` | the resource name from step 6 |
+   | `GCP_SERVICE_ACCOUNT` | `proptech-pipeline@proptech-housing.iam.gserviceaccount.com` |
+   | `GCP_PROJECT_ID` | `proptech-housing` (already set) |
+
+8. Run **Actions → pipeline → Run workflow**. The log must show the step
+   `authenticate (Workload Identity Federation, keyless)` and a passing
+   `credential health check`.
+9. Only after that run is green, retire the key:
+   - **IAM & Admin → Service accounts → proptech-pipeline → Keys**: delete the key.
+   - **GitHub → Settings → Secrets and variables → Actions**: delete the `GCP_SA_KEY` secret.
+   - Delete the local copy of the key file.
+
+<details><summary>Equivalent gcloud commands</summary>
+
 ```bash
+PROJECT_ID=proptech-housing
+SA="proptech-pipeline@${PROJECT_ID}.iam.gserviceaccount.com"
+REPO=rohit91jacob/proptech-housing-lakehouse-bigquery
 gcloud iam workload-identity-pools create github --project "$PROJECT_ID" --location global
 gcloud iam workload-identity-pools providers create-oidc github \
   --project "$PROJECT_ID" --location global --workload-identity-pool github \
   --issuer-uri "https://token.actions.githubusercontent.com" \
   --attribute-mapping "google.subject=assertion.sub,attribute.repository=assertion.repository" \
-  --attribute-condition "assertion.repository == 'rohit91jacob/proptech-housing-lakehouse-bigquery'"
+  --attribute-condition "assertion.repository == '${REPO}'"
 POOL=$(gcloud iam workload-identity-pools describe github --project "$PROJECT_ID" --location global --format 'value(name)')
 gcloud iam service-accounts add-iam-policy-binding "$SA" --project "$PROJECT_ID" \
   --role roles/iam.workloadIdentityUser \
-  --member "principalSet://iam.googleapis.com/${POOL}/attribute.repository/rohit91jacob/proptech-housing-lakehouse-bigquery"
+  --member "principalSet://iam.googleapis.com/${POOL}/attribute.repository/${REPO}"
 gcloud iam workload-identity-pools providers describe github --project "$PROJECT_ID" \
   --location global --workload-identity-pool github --format 'value(name)'
 ```
 
-Set these **repository variables** (Settings → Secrets and variables → Actions → Variables):
+</details>
 
-| Variable | Value |
-|---|---|
-| `GCP_PROJECT_ID` | project ID |
-| `GCP_WORKLOAD_IDENTITY_PROVIDER` | output of the last command |
-| `GCP_SERVICE_ACCOUNT` | `proptech-pipeline@<project>.iam.gserviceaccount.com` |
-| `GCP_LOCATION` | optional, default `US` |
+The workflows prefer WIF whenever both variables are set. A leftover `GCP_SA_KEY` is
+ignored, so switching over needs no workflow edit.
 
 ## 3b. Service-account key (fallback)
 
@@ -66,7 +120,8 @@ gcloud iam service-accounts keys create proptech-sa.json --iam-account "$SA"
 
 Store the file's contents as the **secret** `GCP_SA_KEY`. `GCP_PROJECT_ID` is optional on
 this path: the workflows fall back to the key's own project, which `google-github-actions/auth`
-exports as `GOOGLE_CLOUD_PROJECT`. Don't set the WIF variables too: the auth step accepts exactly one method. For
+exports as `GOOGLE_CLOUD_PROJECT`. If the WIF variables are also set, WIF takes precedence and
+the key is ignored. For
 local runs, `export GOOGLE_APPLICATION_CREDENTIALS=$PWD/proptech-sa.json`. `*-sa.json` is
 git-ignored.
 
