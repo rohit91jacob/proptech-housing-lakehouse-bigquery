@@ -1,0 +1,31 @@
+name: keepalive
+
+# GitHub disables scheduled workflows in public repositories after 60 days without
+# repository activity. This job re-enables the scheduled workflows through the API every
+# month, so the monthly pipeline keeps firing even when nobody commits. It makes no commits.
+# If it ever lapses anyway, re-enable the workflows from the Actions tab (see docs/runbook.md).
+
+on:
+  schedule:
+    - cron: "17 6 1,15 * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: re-enable scheduled workflows
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          for wf in pipeline.yml keepalive.yml; do
+            gh api -X PUT "repos/$REPO/actions/workflows/$wf/enable"
+            state=$(gh api "repos/$REPO/actions/workflows/$wf" --jq .state)
+            echo "$wf: $state"
+            [[ "$state" == "active" ]]
+          done

@@ -113,23 +113,31 @@ jobs:
     name: BigQuery credentials present?
     runs-on: ubuntu-latest
     outputs:
-      enabled: ${{ steps.check.outputs.enabled }}
+      mode: ${{ steps.auth.outputs.mode }}
+      project: ${{ steps.auth.outputs.project }}
+      enabled: ${{ steps.gate.outputs.enabled }}
     steps:
-      - id: check
+      - uses: actions/checkout@v4
+      - id: auth
         env:
           HAS_KEY: ${{ secrets.GCP_SA_KEY != '' }}
-          HAS_WIF: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && vars.GCP_SERVICE_ACCOUNT != '' }}
-          HAS_PROJECT: ${{ vars.GCP_PROJECT_ID != '' }}
+          WIF_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          SERVICE_ACCOUNT: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+        run: python3 src/proptech/ci_auth.py
+      - id: gate
+        env:
+          MODE: ${{ steps.auth.outputs.mode }}
+          REASON: ${{ steps.auth.outputs.reason }}
           # Each BigQuery build bills ~20 GiB of the sandbox's free 1 TiB/month (10 MiB minimum per
           # table referenced per query), so it runs on main and on demand, not on every PR.
           RUN_HERE: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
         run: |
-          # A service-account key carries its project; WIF needs vars.GCP_PROJECT_ID.
-          if [[ "$RUN_HERE" == "true" && ( "$HAS_KEY" == "true" || ( "$HAS_WIF" == "true" && "$HAS_PROJECT" == "true" ) ) ]]; then
+          if [[ "$RUN_HERE" == "true" && "$MODE" != "none" ]]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           else
             echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "::notice title=BigQuery CI skipped::Runs on pushes to main and manual runs once secrets.GCP_SA_KEY (or WIF variables + vars.GCP_PROJECT_ID) exist; see docs/gcp_setup.md."
+            echo "::notice title=BigQuery CI skipped::Runs on pushes to main and manual runs with credentials ($REASON); see docs/gcp_setup.md."
           fi
 
   bigquery:
@@ -144,9 +152,10 @@ jobs:
     env:
       PROPTECH_TARGET: bigquery
       PROPTECH_ENV: sandbox
-      PROPTECH_BQ_PROJECT: ${{ vars.GCP_PROJECT_ID }}
+      PROPTECH_BQ_PROJECT: ${{ needs.bigquery-preflight.outputs.project }}
       PROPTECH_BQ_LOCATION: ${{ vars.GCP_LOCATION || 'US' }}
       PROPTECH_BQ_DATASET_PREFIX: ci_
+      AUTH_MODE: ${{ needs.bigquery-preflight.outputs.mode }}
       PROPTECH_RAW_ARCHIVE_URI: ${{ github.workspace }}/data/archive
       PROPTECH_ZILLOW_BASE_URL: file://${{ github.workspace }}/tests/fixtures/sources/zillow
       PROPTECH_PMMS_URL: file://${{ github.workspace }}/tests/fixtures/sources/pmms/PMMS_history.csv
@@ -159,15 +168,24 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           enable-cache: true
-      - uses: google-github-actions/auth@v2
+      # google-github-actions/auth takes exactly one method, so pass only the selected one.
+      - name: authenticate (Workload Identity Federation, keyless)
+        if: env.AUTH_MODE == 'wif'
+        uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+      - name: authenticate (service-account key)
+        if: env.AUTH_MODE == 'key'
+        uses: google-github-actions/auth@v2
+        with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
       - name: default the project to the credentials' project
         run: |
           if [[ -z "$PROPTECH_BQ_PROJECT" ]]; then echo "PROPTECH_BQ_PROJECT=$GOOGLE_CLOUD_PROJECT" >> "$GITHUB_ENV"; fi
       - run: uv sync
+      - name: credential health check
+        run: uv run proptech --no-json-logs healthcheck
       - name: storage budget gate
         run: uv run proptech budget --fail-above 0.9
       - name: ingest fixtures into ci_ datasets

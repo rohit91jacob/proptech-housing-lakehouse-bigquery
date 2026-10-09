@@ -144,6 +144,29 @@ def budget_cmd(
         raise typer.Exit(code=1)
 
 
+@app.command("healthcheck")
+def healthcheck_cmd(
+    out: Annotated[
+        Path | None, typer.Option(help="Write a markdown diagnosis here when the check fails.")
+    ] = None,
+) -> None:
+    """Verify the configured BigQuery credential works (free: list + dry run)."""
+    from proptech import healthcheck
+
+    settings = Settings()
+    if settings.target is not Target.BIGQUERY:
+        typer.echo("healthcheck only applies to PROPTECH_TARGET=bigquery; nothing to check")
+        return
+    health = healthcheck.check(settings.bq_project, settings.bq_location)
+    typer.echo(health.summary)
+    if not health.ok:
+        if out:
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(f"**Credential health check failed:** {health.summary}\n\n**Fix:** {health.fix}\n")
+        typer.echo(f"fix: {health.fix}", err=True)
+        raise typer.Exit(code=1)
+
+
 @app.command("fixtures")
 def fixtures_cmd(
     out: Annotated[Path, typer.Option()] = REPO_ROOT / "tests" / "fixtures" / "sources",
