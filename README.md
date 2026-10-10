@@ -294,30 +294,72 @@ Procedures are in [docs/runbook.md](docs/runbook.md), and GCP setup is in
 └── Makefile, pyproject.toml, uv.lock, .env.example, .pre-commit-config.yaml
 ```
 
-## Design decisions and trade-offs
+## Design rationale
 
-The full rationale is in [docs/adr](docs/adr).
+Four constraints drove the design. There is no billing account, so the warehouse is the free
+BigQuery sandbox: no DML or streaming, a 60-day expiry on tables, views *and partitions*, a
+**lifetime** 10 GiB storage quota that "is not refunded upon data deletion", and a 1 TiB
+monthly query allowance. The data is real and public, but the repo redistributes none of it,
+so the pipeline downloads it at run time and tests run on synthetic fixtures. Zillow restates
+the full history of every series each month. Finally, the refresh has to run unattended on
+free GitHub-hosted runners, while every change is tested end to end without a cloud account.
+The full reasoning is in the ADRs under [docs/adr](docs/adr).
 
-1. **Built for the sandbox's real limits** ([ADR 0001](docs/adr/0001-bigquery-sandbox-constraints.md)).
-   The sandbox has no DML, a 60-day expiry on tables, views *and partitions*, and a
-   **lifetime** 10 GiB storage quota that "is not refunded upon data deletion". So the design:
-   - uses load jobs only, and no incremental MERGE;
-   - skips time partitioning on the sandbox;
-   - refreshes expiry on every run;
-   - keeps long time-series marts as views on the sandbox;
-   - keeps a storage ledger with a budget gate.
-2. **DuckDB as a second target** ([ADR 0002](docs/adr/0002-duckdb-as-second-target.md)). The
-   full logic is tested on every push with no cloud access, and BigQuery SQL is
-   compile-checked offline.
-3. **GitHub Actions as the orchestrator** ([ADR 0003](docs/adr/0003-github-actions-orchestration.md)).
-   This is a free, monthly, about-five-step batch. Airflow or Dagster would add infrastructure
-   without adding value.
-4. **Full refresh per vintage, with quarantine** ([ADR 0004](docs/adr/0004-full-refresh-and-quarantine.md)).
-   Zillow restates history monthly, so only forecast vintages are accumulated.
-5. **Metro → CBSA crosswalk by principal-city name, per ACS vintage** ([ADR 0005](docs/adr/0005-metro-to-cbsa-crosswalk.md)).
-   All 394 metros within Zillow's top 400 size ranks are mapped on the real data.
+### Architecture decisions
 
-### Verified on the real data (September 2026 vintage)
+| Decision | Why | Alternatives considered | Trade-off accepted |
+|---|---|---|---|
+| **No DML: Parquet load jobs only** ([ADR 0001](docs/adr/0001-bigquery-sandbox-constraints.md)) | The sandbox rejects DML and streaming. `WRITE_TRUNCATE` replaces a table atomically, `WRITE_APPEND` grows the ops tables and forecast history (`src/proptech/warehouse/bigquery_backend.py`), and dbt models are only `table` or `view`. | Incremental `MERGE` models; streaming inserts | A changed dataset is rewritten in full, and append-only rows can't be corrected in place. |
+| **Sandbox-aware materialisation and expiry** ([ADR 0001](docs/adr/0001-bigquery-sandbox-constraints.md)) | `proptech_materialization()` in `dbt/macros/platform.sql` makes the five `*_monthly` fact marts views on `sandbox`, so they use no storage, and every model a view on `ci`. Sandbox partitions expire 60 days after their partition date, so month partitioning is `prod`-only and tables are clustered instead. Every run re-stamps expiry to +59 days, unchanged tables included. | Tables with month partitions on every target | Queries on the long series recompute from raw each time, spending query allowance instead of storage. |
+| **Storage ledger with a budget gate** (`src/proptech/budget.py`) | Google doesn't expose the sandbox's lifetime counter. `ops.storage_ledger` estimates the logical bytes each load and dbt table writes. Loads stop at `PROPTECH_STORAGE_BUDGET_GIB` (8 of the 10 GiB), and the workflow halts before loading above 95% of it. | Reading current table sizes, which drop after a delete while the quota doesn't | An estimate, not Google's number (within 0.3% on the live run). |
+| **Full refresh per vintage, skipped when unchanged** ([ADR 0004](docs/adr/0004-full-refresh-and-quarantine.md)) | Zillow restates history monthly, so appending the newest month would mix vintages. ETag conditional GETs and sha256 checks against `ops.ingestion_manifest` skip unchanged files, so a rerun loads nothing. Forecast vintages are the one history kept, appended once per base date. | Append-only monthly increments; reloading every file on every run | A new vintage of every core file costs about 100 MiB of quota. BigQuery holds only the latest vintage; older ones live in the raw archive (`src/proptech/archive.py`). |
+| **Fail closed per dataset, quarantine isolated outliers** ([ADR 0004](docs/adr/0004-full-refresh-and-quarantine.md)) | `src/proptech/validation.py` checks columns, contiguous month-ends, region counts and value ranges before loading. Up to 0.1% out-of-range values go to `ops.rejected_values`. A higher share fails the dataset, which keeps its previous vintage, and the run exits non-zero. | Testing only in dbt after the load; dropping outliers silently; failing the whole run | Ranges must be set from observed data, and a failed dataset stays a vintage behind the rest until fixed. |
+| **One dbt project on BigQuery and DuckDB** ([ADR 0002](docs/adr/0002-duckdb-as-second-target.md)) | The full pipeline runs on every PR and push to `main` with no credentials and no quota. Dialect differences sit in a few macros (`dbt/macros/platform.sql`, `dbt/macros/trends.sql`), and CI compiles the BigQuery SQL offline for `prod` and `sandbox`. | A BigQuery-only project, which can only be parsed without credentials | DuckDB accepts some SQL that BigQuery rejects, so the `bigquery` CI job on `main` stays the final check (see [Known limitations](#known-limitations)). |
+| **GitHub Actions as the orchestrator** ([ADR 0003](docs/adr/0003-github-actions-orchestration.md)) | Free, auditable and versioned with the code, for one monthly batch of about five steps. Runs are serialised, check the credential first (`proptech healthcheck`), prefer keyless Workload Identity Federation over the key (`src/proptech/ci_auth.py`) and open an issue on failure. | Airflow or Dagster (an always-on host); Cloud Scheduler with Cloud Run jobs (needs billing) | No task-level retries or partial reruns, so runs are idempotent instead. GitHub disables schedules after 60 idle days, so `keepalive.yml` re-enables them. |
+| **The catalog is the single source of truth** (`config/datasets.yml`) | One YAML entry per Zillow file sets its path, profiles and validation thresholds. `proptech dbt-sources` generates the dbt sources, catalog macro and dataset seed from it (`src/proptech/dbt_sources.py`), and staging unions only the loaded profile's tables. | Hand-written dbt sources and a staging model per file | Generated files must be regenerated and committed. CI and a pre-commit hook fail on drift. |
+| **Metro → CBSA by principal-city name, per ACS vintage** ([ADR 0005](docs/adr/0005-metro-to-cbsa-crosswalk.md)) | No crosswalk is published alongside Zillow's CSVs, and CBSA delineations change between ACS vintages. Ranked `"City, ST"` candidates plus an overrides seed map all 394 metros within Zillow's top 400 size ranks on the real data. | A static crosswalk file | Ties are left unmapped rather than guessed. A 5% coverage test on the peer metros catches a delineation change that breaks matching. |
+
+### Stack choices
+
+| Layer | Choice | Why this | Why not the alternatives |
+|---|---|---|---|
+| Language and packaging | Python 3.12 (3.11–3.13 supported); uv with `uv.lock` | dbt, the BigQuery client and polars are all Python, so the loader, dbt and tests share one environment. One lockfile pins the loader, dbt and the dev tools, CI installs it frozen (`UV_FROZEN=1`), and uv installs Python itself. | Poetry and pip-tools also pin versions, but they run on an existing Python; uv is one binary that also fetches the interpreter. |
+| Dataframes | polars 2.0.0, pyarrow 25.0.1 | Zillow files are wide, with a new month column every vintage. polars unpivots them into a stable long layout with explicit schemas and strict casts (`src/proptech/zillow.py`). Its Arrow data goes straight into DuckDB and, as zstd Parquet, into BigQuery load jobs. | Loading the wide CSVs unchanged would alter the raw schema every month. Spark would add a JVM for a core download of about 45 MB. pandas would cope at this size; polars was picked for strict schemas and Arrow-native memory. |
+| Warehouse | BigQuery (`google-cloud-bigquery` 3.46.1) | The sandbox needs no billing account, is serverless, and supports load jobs and `CREATE OR REPLACE`. Looker Studio connects to it at no cost, and leaving the sandbox is a configuration change (`PROPTECH_ENV=prod`, `DBT_TARGET=prod`). | Snowflake and Redshift start on trial credits that run out; the sandbox doesn't need a billing account at all. |
+| Local and CI warehouse | DuckDB 1.5.6 | In-process and file-based, so CI needs no server or credentials. It holds the same raw layout behind one `Warehouse` interface (`src/proptech/warehouse/`), writes each table in a transaction, and accepts `QUALIFY` and `RANGE` frames, so most models need no dialect switch. | SQLite has no `QUALIFY` or native date type. Postgres would need a service container in every CI job. |
+| Transformation | dbt-core 1.12.5, dbt-bigquery 1.12.1, dbt-duckdb 1.11.0, dbt_utils 1.4.1 | One SQL project runs on both engines through adapters, with five targets chosen by `DBT_TARGET` (`local`, `sandbox`, `ci`, `prod`, `offline`). Data tests, unit tests, contracts, source freshness, the exposure and docs live in the same project. | Dataform runs only on BigQuery, which would lose the DuckDB path. SQL run from Python scripts would need its own tests, lineage and docs. |
+| Config and CLI | pydantic-settings 2.15.0, typer 0.27.3 | Every setting is a typed `PROPTECH_*` variable or `.env` entry, validated at start-up (`src/proptech/settings.py`), and pydantic models validate the catalog too. typer builds the `proptech` CLI from type hints. | `os.environ` lookups and argparse would leave validation to hand-written code. Plain click needs more boilerplate for the same commands. |
+| Quality | ruff 0.16.10, sqlfluff 4.4.0 (BigQuery dialect), pytest 9.1.1 | ruff lints and formats in one tool. sqlfluff parses the offline-compiled BigQuery SQL, so BigQuery syntax is checked without credentials. pytest covers parsing, validation, HTTP retries and load-job semantics against a mocked BigQuery client. | flake8, black and isort would be three tools for ruff's one. Running the live `bigquery` job on every PR would eat into a query allowance that covers about 40 builds a month. |
+| Orchestration and CI | GitHub Actions (`pipeline`, `ci`, `keepalive`, `docs`); `google-github-actions/auth` v2 | Free for a public repo, and next to the code and the issues used for alerts. It supplies the cron schedule, `concurrency`, per-deployment environments and the OIDC token behind keyless Workload Identity Federation. | GitLab CI or CircleCI would add a second service and another set of credentials. The scheduler alternatives are in the orchestration decision above. |
+
+### What would change in production
+
+- **Billing-enabled BigQuery** (`PROPTECH_ENV=prod`, `DBT_TARGET=prod`). The five `*_monthly`
+  fact marts become month-partitioned tables, the raw time series are partitioned by month,
+  and the expiry re-stamp and the loader's budget guard switch off. The workflow's storage gate
+  (`proptech budget --fail-above 0.95`) still runs on `prod`, so cost control would move to a
+  GCP billing budget and the existing `maximum_bytes_billed` cap, with the gate dropped or
+  `PROPTECH_STORAGE_BUDGET_GIB` raised.
+- **A durable raw archive.** Unless the `RAW_ARCHIVE_URI` variable is set, `pipeline` runs
+  archive to the runner's workspace, which is discarded after the job. Production would point
+  it at a GCS bucket. `src/proptech/archive.py` already writes there without overwriting
+  (`if_generation_match=0`), but that path hasn't been run yet.
+- **Keyless auth only.** The workflows already prefer Workload Identity Federation, but the
+  live sandbox still authenticates with the `GCP_SA_KEY` JSON key
+  ([docs/gcp_setup.md](docs/gcp_setup.md)). Production would configure the pool and delete the
+  key, and would pre-create the datasets so `bigquery.dataEditor` can be granted on them
+  instead of on the whole project.
+- **A scheduler with retries.** With billing on, Cloud Scheduler and Cloud Run jobs are the
+  natural replacement for GitHub Actions
+  ([ADR 0003](docs/adr/0003-github-actions-orchestration.md)). The `proptech` and `dbt` steps
+  port directly, each job gets its own retries, and there is no 60-day schedule lapse to work
+  around.
+- **Full coverage at scale.** The `extended` profile (city and ZIP, about 0.5 GiB of logical
+  storage per load) would run routinely on billing-enabled BigQuery, with month partitioning
+  and the GCS archive. None of these has been run yet. The `bigquery` CI job could then run on
+  every PR against a dev project, catching engine drift before it reaches `main`.
+
+## Verified on the real data (September 2026 vintage)
 
 Both the live BigQuery sandbox project and DuckDB were checked.
 
@@ -353,7 +395,7 @@ Both the live BigQuery sandbox project and DuckDB were checked.
     digest (`83fb0f244d9a62bc`).
   - DuckDB fingerprints were identical as well.
 
-### Known limitations
+## Known limitations
 
 - **DuckDB isn't a perfect stand-in for BigQuery.** The first live BigQuery build caught four
   issues that DuckDB accepted:
@@ -372,11 +414,12 @@ Both the live BigQuery sandbox project and DuckDB were checked.
 - **Zillow terms not reviewed verbatim.** The terms page couldn't be fetched from the build
   machine. Check them before publishing derived data.
 
-### Roadmap
+## Roadmap
+
+The production move (billing-enabled BigQuery, the `extended` profile, the GCS archive) is
+described in [What would change in production](#what-would-change-in-production). Beyond it:
 
 - ACS 5-year estimates as a fallback, for full metro and county income coverage.
-- An `extended` profile run on billing-enabled BigQuery, with GCS raw archive and month
-  partitioning.
 - A Looker Studio report linked from the `housing_market_dashboard` exposure.
 - Tracking vintage revisions: how much each month restates history.
 
