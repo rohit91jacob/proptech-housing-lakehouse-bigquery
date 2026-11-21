@@ -18,3 +18,13 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # v7 broke the workflow in CI; revisit deliberately
+      - dependency-name: astral-sh/setup-uv
+        versions: [">=7"]
+      # v5 broke the Pages deploy in CI; revisit deliberately
+      - dependency-name: actions/deploy-pages
+        versions: [">=5"]
+      # v4+ broke the Pages deploy in CI; revisit deliberately
+      - dependency-name: actions/upload-pages-artifact
+        versions: [">=4"]
