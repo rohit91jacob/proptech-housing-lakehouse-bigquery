@@ -59,7 +59,7 @@ jobs:
           enable-cache: true
       - run: uv sync
       - run: uv run pytest --cov --cov-report=term-missing --cov-report=xml
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: coverage
           path: coverage.xml
@@ -99,7 +99,7 @@ jobs:
         run: uv run dbt source freshness
       - name: dbt docs
         run: uv run dbt docs generate --static
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: dbt-duckdb-artifacts
