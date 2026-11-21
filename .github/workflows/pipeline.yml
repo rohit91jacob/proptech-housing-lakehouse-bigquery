@@ -68,7 +68,7 @@ jobs:
         run: echo "::notice title=Pipeline skipped::$REASON"
       - name: alert on a scheduled run without credentials
         if: steps.auth.outputs.mode == 'none' && github.event_name == 'schedule'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           REASON: ${{ steps.auth.outputs.reason }}
         with:
@@ -163,7 +163,7 @@ jobs:
 
       - name: open or update the failure issue
         if: failure()
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           HEALTH_FAILED: ${{ steps.health.outcome == 'failure' }}
         with:
